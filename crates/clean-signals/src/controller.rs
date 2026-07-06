@@ -36,7 +36,7 @@
 //!   up rather than leaked.
 
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, Weak};
 
 use any_spawner::Executor;
 use futures::future::{AbortHandle, Abortable};
@@ -52,11 +52,22 @@ use crate::failure::Failure;
 use crate::retry::RetryPolicy;
 use crate::use_case::{StreamUseCase, UseCase};
 
-/// A single failure listener, boxed for storage in the [`FailureSink`].
-type Listener<F> = Box<dyn Fn(&F) + Send + Sync>;
+/// A single failure listener. Stored behind an [`Arc`] (not [`Box`]) so
+/// [`FailureSink::emit`] can cheaply clone the live set out from under the lock
+/// and invoke listeners with no lock held (see [`FailureSink`]'s re-entrancy
+/// docs).
+type Listener<F> = Arc<dyn Fn(&F) + Send + Sync>;
 
 /// Shared, id-keyed list of a [`FailureSink`]'s listeners.
 type Listeners<F> = Arc<Mutex<Vec<(u64, Listener<F>)>>>;
+
+/// The id-keyed registry of live [`ControllerCore::watch`] subscriptions.
+///
+/// Each entry pairs a monotonic id with the watch's [`AbortHandle`]. Entries
+/// are pruned when a watch's stream completes, when it is aborted, or when its
+/// [`WatchHandle::cancel`] is called, so a long-lived controller re-watched many
+/// times never accumulates dead handles.
+type WatchList = Vec<(u64, AbortHandle)>;
 
 /// Per-call knobs for [`ControllerCore::run`] / [`ControllerCore::run_into`].
 ///
@@ -90,13 +101,22 @@ impl<F> Default for RunOptions<F> {
 /// [`emit`](FailureSink::emit) is called. Cheap to [`Clone`] — all clones
 /// share the same listener list and id counter.
 ///
-/// # Re-entrancy
+/// # Re-entrancy and panics
 ///
-/// [`emit`](FailureSink::emit) holds the internal lock while invoking
-/// listeners; a listener must not [`subscribe`](FailureSink::subscribe) to or
-/// drop a [`Subscription`] of the *same* sink synchronously from within its own
-/// body (doing so would deadlock). Listeners typically just forward the failure
-/// elsewhere (push to a buffer, show a snackbar), which is safe.
+/// [`emit`](FailureSink::emit) snapshots the current listeners under its lock
+/// and then invokes them with **no lock held**. Consequences:
+///
+/// - A listener may safely [`subscribe`](FailureSink::subscribe) to or drop a
+///   [`Subscription`] of the *same* sink from within its own body — this no
+///   longer deadlocks.
+/// - Unsubscribing mid-`emit` does *not* retroactively cancel the in-flight
+///   pass: a listener removed during an `emit` still fires once for that
+///   emission (the snapshot was already taken); only *subsequent* emits skip
+///   it. Likewise a listener subscribed mid-`emit` first fires on the next
+///   emission.
+/// - A panicking listener propagates the panic out of `emit` but never poisons
+///   the sink's internal lock, so later `subscribe`/`emit`/unsubscribe calls
+///   keep working. Remaining lock sites also recover from poisoning defensively.
 pub struct FailureSink<F> {
     listeners: Listeners<F>,
     next_id: Arc<AtomicU64>,
@@ -118,14 +138,20 @@ impl<F: 'static> FailureSink<F> {
     /// [`Subscription::forget`] to leak it (fire until the sink is dropped).
     pub fn subscribe(&self, f: impl Fn(&F) + Send + Sync + 'static) -> Subscription {
         let id = self.next_id.fetch_add(1, Ordering::SeqCst);
-        self.listeners.lock().unwrap().push((id, Box::new(f)));
+        self.listeners
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .push((id, Arc::new(f)));
 
         // Type-erase removal so `Subscription` need not be generic over `F`.
         let listeners = Arc::downgrade(&self.listeners);
         Subscription {
             remove: Some(Box::new(move || {
                 if let Some(listeners) = listeners.upgrade() {
-                    listeners.lock().unwrap().retain(|(lid, _)| *lid != id);
+                    listeners
+                        .lock()
+                        .unwrap_or_else(|e| e.into_inner())
+                        .retain(|(lid, _)| *lid != id);
                 }
             })),
         }
@@ -133,9 +159,20 @@ impl<F: 'static> FailureSink<F> {
 
     /// Invokes every subscribed listener with `failure`, synchronously and in
     /// subscription order. A no-op when there are no listeners.
+    ///
+    /// Listeners are snapshotted under the lock and invoked with **no lock
+    /// held**, so a panicking or re-entrant listener can neither poison nor
+    /// deadlock the sink. See the [type docs](FailureSink#re-entrancy-and-panics)
+    /// for the exact mid-`emit` subscribe/unsubscribe semantics.
     pub fn emit(&self, failure: &F) {
-        let listeners = self.listeners.lock().unwrap();
-        for (_, listener) in listeners.iter() {
+        let snapshot: Vec<Listener<F>> = self
+            .listeners
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .iter()
+            .map(|(_, listener)| Arc::clone(listener))
+            .collect();
+        for listener in &snapshot {
             listener(failure);
         }
     }
@@ -190,13 +227,47 @@ impl Drop for Subscription {
 /// [`cancel`](Self::cancel) is called explicitly.
 pub struct WatchHandle {
     abort: AbortHandle,
+    /// Back-reference to the owning controller's watch registry, so `cancel`
+    /// can prune this watch's entry synchronously. `Weak` avoids keeping the
+    /// controller alive; a disposed-controller (inert) handle holds an empty
+    /// `Weak` and prunes nothing.
+    registry: Weak<Mutex<WatchList>>,
+    /// This watch's registry id (see [`WatchList`]).
+    id: u64,
 }
 
 impl WatchHandle {
     /// Cancels just this watch immediately (aborts its driving task at the next
-    /// poll). Idempotent.
+    /// poll) and prunes its registry entry synchronously. Idempotent.
     pub fn cancel(&self) {
         self.abort.abort();
+        if let Some(registry) = self.registry.upgrade() {
+            registry
+                .lock()
+                .unwrap_or_else(|e| e.into_inner())
+                .retain(|(id, _)| *id != self.id);
+        }
+    }
+}
+
+/// RAII guard that removes a watch's entry from the registry when its driver
+/// future is dropped — which happens on normal stream completion *and* on abort
+/// (`futures::future::Abortable` drops its wrapped future in place the moment it
+/// observes the abort). Lives inside the driver's async frame so both paths
+/// prune. Idempotent with [`WatchHandle::cancel`]'s proactive prune.
+struct RemoveOnDrop {
+    registry: Weak<Mutex<WatchList>>,
+    id: u64,
+}
+
+impl Drop for RemoveOnDrop {
+    fn drop(&mut self) {
+        if let Some(registry) = self.registry.upgrade() {
+            registry
+                .lock()
+                .unwrap_or_else(|e| e.into_inner())
+                .retain(|(id, _)| *id != self.id);
+        }
     }
 }
 
@@ -210,7 +281,11 @@ pub struct ControllerCore<F: Failure + Clone> {
     activity: ActivityTracker,
     failures: FailureSink<F>,
     cleanups: Mutex<Vec<Box<dyn FnOnce() + Send>>>,
-    watches: Mutex<Vec<AbortHandle>>,
+    /// Id-keyed registry of live watches, shared (`Arc`) so driver tasks and
+    /// [`WatchHandle`]s can prune their own entries via a [`Weak`] back-ref.
+    watches: Arc<Mutex<WatchList>>,
+    /// Monotonic id source for watch registry entries.
+    next_watch_id: AtomicU64,
     disposed: Arc<AtomicBool>,
 }
 
@@ -228,7 +303,8 @@ impl<F: Failure + Clone> ControllerCore<F> {
             activity,
             failures: FailureSink::new(),
             cleanups: Mutex::new(Vec::new()),
-            watches: Mutex::new(Vec::new()),
+            watches: Arc::new(Mutex::new(Vec::new())),
+            next_watch_id: AtomicU64::new(0),
             disposed: Arc::new(AtomicBool::new(false)),
         }
     }
@@ -334,6 +410,20 @@ impl<F: Failure + Clone> ControllerCore<F> {
     /// aborted immediately by [`dispose`](Self::dispose) — no `on_data` fires
     /// after disposal.
     ///
+    /// The watch registers itself in an id-keyed registry and removes its own
+    /// entry when its stream completes, when it is aborted, or when
+    /// [`WatchHandle::cancel`] is called — so a long-lived controller that is
+    /// re-watched many times never accumulates dead handles.
+    ///
+    /// Registration is performed under the same lock [`dispose`](Self::dispose)
+    /// takes, so a `watch` racing a concurrent `dispose` is strictly ordered:
+    /// either it registers in time to be aborted by that `dispose`, or it
+    /// observes the controller already disposed and returns an **inert**
+    /// [`WatchHandle`] without spawning a driver — the stream is never polled
+    /// and no `on_data` ever fires. (The stream value is still *constructed* via
+    /// `uc.execute`, but constructing it is side-effect-free; only polling
+    /// drives it.)
+    ///
     /// The returned [`WatchHandle`] can cancel this single watch early; dropping
     /// it does not.
     pub fn watch<S>(
@@ -352,14 +442,42 @@ impl<F: Failure + Clone> ControllerCore<F> {
 
         let (abort_handle, abort_reg) = AbortHandle::new_pair();
 
-        let driver = async move {
-            while let Some(item) = stream.next().await {
-                if disposed.load(Ordering::SeqCst) {
-                    break;
-                }
-                match item {
-                    Ok(value) => on_data(value),
-                    Err(failure) => failures.emit(&failure),
+        // Register (or refuse, if disposed) under the watches lock so this call
+        // is strictly ordered against `dispose`'s flag-flip + drain. Only the
+        // `is_disposed` read, id allocation and push happen under the lock — no
+        // user code (`uc.execute`, `on_data`, the spawn) runs while it is held.
+        let id = {
+            let mut watches = self.watches.lock().unwrap_or_else(|e| e.into_inner());
+            if self.is_disposed() {
+                // Already disposed: never spawn a driver. Return an inert handle
+                // (already aborted, holds no registry entry) whose `cancel` is a
+                // no-op.
+                abort_handle.abort();
+                return WatchHandle {
+                    abort: abort_handle,
+                    registry: Weak::new(),
+                    id: 0,
+                };
+            }
+            let id = self.next_watch_id.fetch_add(1, Ordering::SeqCst);
+            watches.push((id, abort_handle.clone()));
+            id
+        };
+
+        let driver = {
+            let registry = Arc::downgrade(&self.watches);
+            async move {
+                // Prune this watch's registry entry on normal completion or
+                // abort (the guard is dropped in both cases).
+                let _guard = RemoveOnDrop { registry, id };
+                while let Some(item) = stream.next().await {
+                    if disposed.load(Ordering::SeqCst) {
+                        break;
+                    }
+                    match item {
+                        Ok(value) => on_data(value),
+                        Err(failure) => failures.emit(&failure),
+                    }
                 }
             }
         };
@@ -368,9 +486,10 @@ impl<F: Failure + Clone> ControllerCore<F> {
             let _ = driver.await;
         });
 
-        self.watches.lock().unwrap().push(abort_handle.clone());
         WatchHandle {
             abort: abort_handle,
+            registry: Arc::downgrade(&self.watches),
+            id,
         }
     }
 
@@ -385,7 +504,10 @@ impl<F: Failure + Clone> ControllerCore<F> {
         if self.is_disposed() {
             cleanup();
         } else {
-            self.cleanups.lock().unwrap().push(Box::new(cleanup));
+            self.cleanups
+                .lock()
+                .unwrap_or_else(|e| e.into_inner())
+                .push(Box::new(cleanup));
         }
     }
 
@@ -413,21 +535,34 @@ impl<F: Failure + Clone> ControllerCore<F> {
     /// Aborts all [`watch`](Self::watch) subscriptions immediately, marks the
     /// activity tracker disposed, runs registered cleanups **LIFO**, and
     /// releases the owned activity signals.
+    ///
+    /// The `disposed` flag is flipped **while holding the same lock**
+    /// [`watch`](Self::watch) takes to register, then all live watches are
+    /// drained and aborted under that lock. This makes `watch`/`dispose` races
+    /// (the type is `Send + Sync` for app-scoped `provide_controller` use)
+    /// strictly ordered — a concurrent `watch` either registers in time to be
+    /// aborted here or observes `disposed` and never spawns, so no watch can
+    /// leak past disposal. User cleanups run *after* the lock is released, since
+    /// they may call back into the controller.
     pub fn dispose(&self) {
-        if self.disposed.swap(true, Ordering::SeqCst) {
-            return; // already disposed
-        }
-
-        // Abort watches first so no further `on_data` can fire.
-        for handle in self.watches.lock().unwrap().drain(..) {
-            handle.abort();
+        // Flip `disposed` and drain+abort watches under the watches lock, so a
+        // concurrent `watch` cannot interleave its register between the two.
+        {
+            let mut watches = self.watches.lock().unwrap_or_else(|e| e.into_inner());
+            if self.disposed.swap(true, Ordering::SeqCst) {
+                return; // already disposed
+            }
+            for (_, handle) in watches.drain(..) {
+                handle.abort();
+            }
         }
 
         // Suppress any in-flight activity guard decrements.
         self.activity.dispose();
 
         // Run cleanups in reverse registration order.
-        let mut cleanups = std::mem::take(&mut *self.cleanups.lock().unwrap());
+        let mut cleanups =
+            std::mem::take(&mut *self.cleanups.lock().unwrap_or_else(|e| e.into_inner()));
         while let Some(cleanup) = cleanups.pop() {
             cleanup();
         }
@@ -769,6 +904,119 @@ mod tests {
             .await;
     }
 
+    #[tokio::test(flavor = "current_thread")]
+    async fn watch_registry_empties_after_stream_completes() {
+        tokio::task::LocalSet::new()
+            .run_until(async {
+                ensure_executor();
+                let controller = ControllerCore::<NetworkFailure>::new();
+
+                let _watch = controller.watch(&Ticker, 3, |_v| {});
+                assert_eq!(
+                    controller.watches.lock().unwrap().len(),
+                    1,
+                    "registered synchronously"
+                );
+
+                // Drive the finite stream to exhaustion; the driver's
+                // RemoveOnDrop guard then prunes the entry.
+                pump().await;
+                assert_eq!(
+                    controller.watches.lock().unwrap().len(),
+                    0,
+                    "pruned once the stream completes"
+                );
+                controller.dispose();
+            })
+            .await;
+    }
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn watch_registry_empties_after_cancel() {
+        tokio::task::LocalSet::new()
+            .run_until(async {
+                ensure_executor();
+                let controller = ControllerCore::<NetworkFailure>::new();
+
+                let handle = controller.watch(&SlowTicker, (), |_v| {});
+                assert_eq!(controller.watches.lock().unwrap().len(), 1);
+
+                // `cancel` prunes synchronously — without pumping the executor,
+                // proving it doesn't rely on the aborted task being re-polled.
+                handle.cancel();
+                assert_eq!(
+                    controller.watches.lock().unwrap().len(),
+                    0,
+                    "cancel prunes synchronously"
+                );
+
+                // Re-navigation: repeated watch()+cancel() never grows the vec
+                // past the number of currently-live watches.
+                for _ in 0..5 {
+                    let h = controller.watch(&SlowTicker, (), |_v| {});
+                    assert_eq!(controller.watches.lock().unwrap().len(), 1);
+                    h.cancel();
+                    assert_eq!(controller.watches.lock().unwrap().len(), 0);
+                }
+                controller.dispose();
+            })
+            .await;
+    }
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn watch_dispose_aborts_all_live_watches() {
+        tokio::task::LocalSet::new()
+            .run_until(async {
+                ensure_executor();
+                let controller = ControllerCore::<NetworkFailure>::new();
+
+                let _a = controller.watch(&SlowTicker, (), |_v| {});
+                let _b = controller.watch(&SlowTicker, (), |_v| {});
+                assert_eq!(controller.watches.lock().unwrap().len(), 2);
+
+                controller.dispose();
+                assert_eq!(
+                    controller.watches.lock().unwrap().len(),
+                    0,
+                    "dispose drains and aborts all live watches"
+                );
+            })
+            .await;
+    }
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn watch_after_dispose_is_inert() {
+        tokio::task::LocalSet::new()
+            .run_until(async {
+                ensure_executor();
+                let controller = ControllerCore::<NetworkFailure>::new();
+                controller.dispose();
+
+                let values = Rc::new(RefCell::new(Vec::<u32>::new()));
+                let sink = Rc::clone(&values);
+                let handle = controller.watch(&Ticker, 3, move |v| sink.borrow_mut().push(v));
+
+                // Registers nothing: the disposed-controller path never spawns.
+                assert_eq!(
+                    controller.watches.lock().unwrap().len(),
+                    0,
+                    "watch on a disposed controller registers nothing"
+                );
+
+                // Delivers nothing, even after pumping the executor.
+                pump().await;
+                assert!(
+                    values.borrow().is_empty(),
+                    "no on_data after watch on a disposed controller"
+                );
+
+                // The inert handle's cancel is a harmless no-op.
+                handle.cancel();
+                assert_eq!(controller.watches.lock().unwrap().len(), 0);
+            })
+            .await;
+    }
+
     // ---- dispose ------------------------------------------------------------
 
     #[test]
@@ -850,6 +1098,33 @@ mod tests {
         drop(sub);
         sink.emit(&NetworkFailure::new("second"));
         assert_eq!(store.lock().unwrap().len(), 1, "no fire after unsubscribe");
+    }
+
+    #[test]
+    fn failure_sink_panicking_listener_does_not_poison() {
+        let sink = FailureSink::<NetworkFailure>::new();
+        let panicking = sink.subscribe(|_| panic!("listener boom"));
+
+        // The listener panic propagates out of `emit`, but because listeners are
+        // invoked with no lock held it must NOT poison the internal mutex.
+        let caught = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            sink.emit(&NetworkFailure::new("x"));
+        }));
+        assert!(caught.is_err(), "the listener panic propagates out of emit");
+
+        // Unsubscribing the panicking listener still works (would panic on a
+        // PoisonError if the mutex had been poisoned).
+        drop(panicking);
+
+        // And a fresh subscribe + emit still fires — the sink is fully usable.
+        let (store, listener) = collector();
+        sink.subscribe(listener).forget();
+        sink.emit(&NetworkFailure::new("y"));
+        assert_eq!(
+            store.lock().unwrap().len(),
+            1,
+            "sink still delivers after a listener panicked"
+        );
     }
 
     #[test]
