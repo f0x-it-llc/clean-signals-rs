@@ -2,7 +2,7 @@
 //! in, plus the `ResultExt::to_async_state()` bridge from `Result<T, F>`.
 //!
 //! Mirrors the Dart `signals` package's `AsyncState`/`toAsyncState()`, with
-//! one addition pinned by `research/dart-test-spec.md`: a [`Reloading`]
+//! one addition pinned by `research/dart-test-spec.md`: a [`AsyncState::Reloading`]
 //! variant that keeps the previous value visible while a refresh is in
 //! flight (`AsyncDataReloading` in the Dart test spec), so UI never flashes
 //! back to a bare loading state on refetch.

@@ -115,10 +115,11 @@ src/features/<feature>/
   inside the page component. Disposed automatically on the component's
   `on_cleanup`.
 - **App-scoped controllers** (session, connectivity, settings — outlive any
-  one page): provide once near the app root via
-  `clean_signals_leptos::provide_controller(controller)`, look up with
-  `expect_controller::<T>()`. Pages that look these up **never** dispose
-  them.
+  one page): wrap in `Arc` (leptos context requires `Send + Sync`, which a
+  bare controller usually isn't) and provide once near the app root via
+  `clean_signals_leptos::provide_controller(Arc::new(controller))`, look up
+  with `expect_controller::<Arc<T>>()`. Pages that look these up **never**
+  dispose them.
 - Fakes/test doubles are passed as constructor arguments, so tests can swap
   in fake repositories without touching the composition root.
 

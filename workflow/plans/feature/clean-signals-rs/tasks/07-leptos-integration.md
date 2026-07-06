@@ -43,3 +43,45 @@ Deps pre-declared: leptos 0.8 (no default features + `effects`? — leptos is br
 
 - This crate is the ONLY place leptos APIs may be touched (layer rule) — core stays leptos-free.
 - If `#[component]` generics fight back, an `AsyncView` free function returning `impl IntoView` is an acceptable fallback — document the choice.
+
+---
+
+## Completion Summary
+
+**Status:** Done
+**Branch:** worktree-wf_98ec4f7c-170-1
+
+### Files Modified
+
+| File | Changes |
+|------|---------|
+| `crates/clean-signals-leptos/src/lib.rs` | Crate-level doc showing the `orders.rs` "after" page-controller pattern end-to-end; public re-exports. |
+| `crates/clean-signals-leptos/src/hooks.rs` | `use_controller` (StoredValue + on_cleanup dispose), `provide_controller`/`expect_controller`; native owner-cleanup + context round-trip tests. |
+| `crates/clean-signals-leptos/src/async_view.rs` | Generic `#[component] AsyncView<T, F, Ch>` over `Signal<AsyncState<T,F>>` with optional `loading`/`error`/`reloading_indicator` slots + defaults; `ErrorSlot<F>` slot type; two compile-tests. |
+| `crates/clean-signals-leptos/src/failure_listener.rs` | `use_failure_listener` — subscribe, drop `Subscription` on cleanup; native fire/stop test. |
+| `crates/clean-signals-leptos/src/interval.rs` | `use_interval` (wasm spawn_local loop w/ Arc alive-flag + on_cleanup; native no-op); testable `run_interval` helper + native stop test. |
+
+### Notable Decisions/Tradeoffs
+
+1. **`use_controller` returns `StoredValue<Rc<C>, LocalStorage>`** (the task's sanctioned adjustment). The cleanup closure captures the `Send + Sync` `StoredValue` handle — not the `!Send` `Rc` — because `reactive_graph`'s `on_cleanup` requires `FnOnce() + Send + Sync`. Verified in `owner.rs` that cleanups run *before* stored values are torn down, so the handle is live at dispose time (`try_with_value` used as a belt-and-braces guard).
+2. **`AsyncView` kept as a generic `#[component]`** (no free-function fallback needed). `children: Ch = Fn(T) -> AnyView` is a required generic prop; `loading`/`reloading_indicator` are `Option<ViewFn>` and `error` is `Option<ErrorSlot<F>>`, all `#[prop(optional, into)]` so callers pass bare closures. Omitting them yields sane defaults (loading/error divs). The error slot receives the **owned** failure `F` (task said `&F`; owned clone is strictly more flexible and `user_message()` takes `&self`).
+3. **`use_failure_listener` handler bound tightened to `Fn(F) + Send + Sync`** (PLAN sketch said `Fn(F)`). Forced by `FailureSink::subscribe`'s `Send + Sync` bound; leptos default `SyncStorage` signals are `Send + Sync`, so typical UI handlers satisfy it. Documented.
+4. **`provide_controller` bound is `C: Send + Sync + 'static`** (leptos context requires it) → app-scoped controllers use `Arc`, not `Rc`. `use_controller` (component-scoped, LocalStorage) still accepts `!Send` controllers.
+5. **`use_interval` uses `Arc<AtomicBool>`** for the alive-flag (again the `on_cleanup` Send+Sync requirement). The loop body is factored into `run_interval` (gated `#[cfg(any(target_arch = "wasm32", test))]`) so its stop-on-cleanup behavior is testable natively.
+
+### Testing Performed
+
+- `cargo build -p clean-signals-leptos` (native) — Passed
+- `cargo check -p clean-signals-leptos --target wasm32-unknown-unknown` — Passed
+- `cargo test -p clean-signals-leptos` — Passed (6 unit tests: use_controller dispose, provide/expect round-trip, failure listener fire/stop, interval stop, 2 AsyncView compile-tests)
+- `cargo clippy -p clean-signals-leptos --all-targets -- -D warnings` (native + wasm) — Passed
+- `RUSTDOCFLAGS="-D warnings" cargo doc -p clean-signals-leptos --no-deps` — Passed (all public items documented)
+
+### Risks/Limitations
+
+1. **AsyncView rendering not asserted**: DOM rendering assertions are out of scope (no headless browser). Coverage is compile-tests + the four-state match arms are exercised only for type-checking, per the task.
+2. **`use_interval`/`use_failure_listener` cleanup behavior on real unmount** is validated via native `Owner::cleanup()` (which shares the same cleanup path), not a real wasm mount/unmount.
+
+### Doc Updates Needed
+
+None for core docs (`docs/` does not exist in this repo yet — task 08 owns doc creation). Two API deviations that task 08 / a downstream `AGENTS.md` should capture: `use_failure_listener` handler must be `Send + Sync`, and app-scoped controllers via `provide_controller` must be `Arc` (Send+Sync), while `use_controller` accepts `!Send` `Rc` controllers.
