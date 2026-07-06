@@ -69,3 +69,47 @@ FailureSink: two subscribers both fire; dropped Subscription stops firing.
 - `U::Params: Clone` bound on `run`/`run_into` is accepted (retry needs it). NoParams is Copy.
 - Do NOT implement `auto_effect` here if SPIKE_NOTES shows Effect needs the leptos runtime nuances — it moves to task 07. Record the decision.
 - Prefer `Memo`/explicit state over internal Effects — controllers must be fully testable without the `effects` feature.
+
+---
+
+## Completion Summary
+
+**Status:** Done
+**Branch:** master
+
+### Files Modified
+
+| File | Changes |
+|------|---------|
+| `crates/clean-signals/src/controller.rs` | Implemented `ControllerCore<F>`, `RunOptions<F>`, `FailureSink<F>`, `Subscription`, `WatchHandle`; ported all `controller_test.dart` behaviors as 20 named tests. |
+| `crates/clean-signals/src/lib.rs` | Flat crate-root re-exports of the public surface + crate rustdoc with a compiling `block_on` doctest (failure enum → use case → controller embedding `ControllerCore` → `run_into`). |
+
+### Notable Decisions/Tradeoffs
+
+1. **`U::Params: Clone` bound** on `run`/`run_into` (deviation from the locked PLAN signature, accepted by the task note): the retry loop re-invokes the use case with the same params. `NoParams` is `Copy`, so the common case is free. Documented in the module rustdoc.
+2. **Activity begins once around the whole retry loop** (not per attempt): confirmed against Dart source — `_activity.track(_runWithRetry(...))` wraps the entire loop, so `is_loading` stays `true` across retry sleeps. Guard held for the lifetime of `run`.
+3. **`on_dispose` after `dispose` runs the callback immediately** (documented). Dart silently appends to an already-drained list (effectively dropping it); running immediately is strictly safer (resource still released). The task explicitly permitted either; chose the defensive option.
+4. **No `auto_effect` / no `Effect` in core** (per SPIKE_NOTES Q4): `Effect::new` forces the `effects` feature + `LocalSet` on every consumer. Core uses `Memo` (via `ActivityTracker`) + explicit methods only, keeping controllers testable without the `effects` feature. Render-glue deferred to task 07.
+5. **`watch` kept to the PLAN signature** (no public `emit_failures`/`onFailure` params): failures always route to the `FailureSink` (the Rust equivalent of Dart's failures stream). The task allowed adding an `emit_failures` arg "if you add one"; omitted to keep the locked surface minimal — a variant can live in the leptos crate.
+6. **`ControllerCore` holds an `Owner`** (SPIKE_NOTES Q1/Q2): activity signals are created under it and released by `dispose()` via `owner.cleanup()`, avoiding leaked arena slots. `ControllerCore<F>` is `Send + Sync` (needed for leptos `StoredValue`).
+7. **`FailureSink` is `Clone`** (shares `Arc` listener list + id counter) so `watch`'s spawned-local task can own a handle; `Subscription` is non-generic via a type-erased removal closure and is `#[must_use]`.
+8. **`FailureSink::emit` holds its lock while invoking listeners** (synchronous, in-order fan-out). Documented the re-entrancy constraint (a listener must not subscribe/unsubscribe the same sink synchronously).
+
+### Testing Performed
+
+- `cargo build --workspace` — Passed
+- `cargo test --workspace` — Passed (clean-signals lib: 55 tests incl. 20 new controller tests; spike suite: 10; doctests: 3)
+- `cargo clippy --workspace --all-targets -- -D warnings` — Passed
+- `cargo check -p clean-signals --target wasm32-unknown-unknown` — Passed
+- `cargo clippy -p clean-signals --all-targets --features test-fixtures -- -D warnings` — Passed
+
+Behavior coverage (dart-test-spec controller sections): run success/no-emit, retry-to-success (attempts==3), exhaust-and-emit-one (attempts==2, one failure), non-retryable no-retry (attempts==1), emit_failure=false, is_loading gated transitions; run_into loading→data, reloading keeps stale (mid-flight `value()==Some(6)`), failure→Error{stale:Some}, fresh failure→Error{stale:None}; watch data+trailing failure, dispose stops further on_data (gated ticker via `Executor::spawn_local` + LocalSet recipe); dispose LIFO+idempotent, is_disposed flips, run_into-after-dispose untouched, on_dispose-after-dispose runs immediately; FailureSink fan-out, dropped-subscription-stops, forget-keeps-firing.
+
+### Risks/Limitations
+
+1. **`watch` tests require the current_thread + `LocalSet` harness** (SPIKE_NOTES Q5) — a plain `#[tokio::test]` panics on `spawn_local`. Encoded in the two watch tests; documented for downstream (task 07) test authors.
+2. **`FailureSink::emit` re-entrancy** — a listener that mutates the same sink synchronously would deadlock. Documented; not a concern for the intended usage (forward-to-UI listeners).
+
+### Doc Updates Needed
+
+None yet — `docs/ARCHITECTURE.md` etc. are created by task 08. The public surface finalized here (flat re-exports, `RunOptions`/`ControllerCore`/`FailureSink`/`Subscription`/`WatchHandle`, and the two documented PLAN deviations: `U::Params: Clone` and `on_dispose`-after-dispose-runs-immediately) should be reflected when those docs are written.
