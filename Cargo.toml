@@ -10,7 +10,7 @@ members = [
 version = "0.1.0"
 edition = "2024"
 license = "MIT"
-repository = "https://github.com/edstub/clean-signals-rs"
+repository = "https://github.com/f0x-it-llc/clean-signals-rs"
 
 [workspace.dependencies]
 clean-signals = { path = "crates/clean-signals" }
