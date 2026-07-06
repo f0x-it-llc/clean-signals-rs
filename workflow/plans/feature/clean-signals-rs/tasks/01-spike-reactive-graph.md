@@ -43,3 +43,40 @@ SPIKE_NOTES.md format: one `## Q<n>` section per question with VERDICT (one line
 
 - This is exploratory but ships: keep the tests deterministic (no sleeps for ordering — use `Executor::tick().await`).
 - If a question can't be settled, say so explicitly in SPIKE_NOTES with what was tried — do NOT guess.
+
+---
+
+## Completion Summary
+
+**Status:** Done
+**Branch:** worktree-wf_b6ff6edf-1a2-1
+
+### Files Modified
+
+| File | Changes |
+|------|---------|
+| `crates/clean-signals/tests/spike_reactive_graph.rs` | New integration suite: 10 deterministic tests covering all 8 questions (Q4 and Q5 split into 2 tests each for the LocalSet-vs-multithread axis). Kept permanently as the environment-assumption suite. |
+| `workflow/plans/feature/clean-signals-rs/research/SPIKE_NOTES.md` | New findings doc: `## CONTRADICTIONS` (empty — none) + one `## Q<n>` section per question with a one-line VERDICT, working recipe, and implications for tasks 05/06/07; plus a summary table for task 06. |
+
+### Notable Decisions/Tradeoffs
+
+1. **No Cargo.toml edits.** Dev-deps already provided everything (reactive_graph effects, any_spawner tokio, tokio rt+macros+time+sync). Nothing was missing.
+2. **Split Q4 and Q5 into two tests each.** `Effect::new`/`spawn_local` need `current_thread` + `LocalSet`; `Effect::new_isomorphic`/the panic-without-LocalSet case exercise the multi-thread runtime. One `#[tokio::test]` flavor cannot cover both, so each axis got its own test (10 tests total for 8 questions).
+3. **Determinism via `Executor::tick().await`, never sleeps.** Effects and spawned tasks are pumped with `tick()`; ran the suite 3x — stable 10/10.
+4. **Expected panics (Q5 multi-thread, Q7 new_local cross-thread) asserted via `catch_unwind` with a silenced panic hook** so output stays clean and the harness never sees a stray unwind.
+5. **Idempotent executor init helper** (`ensure_executor` = `let _ = Executor::init_tokio();`) — the global executor is a process-wide OnceLock, so tests must never assert init is `Ok`.
+
+### Testing Performed
+
+- `cargo test -p clean-signals --test spike_reactive_graph` — Passed (10/10), stable across 3 runs.
+- `cargo clippy -p clean-signals --all-targets -- -D warnings` — Passed (clean).
+
+### Risks/Limitations
+
+1. **Native-only spike.** These tests validate the tokio/native runtime story; the wasm spawn path (`init_wasm_bindgen`) is not exercised here (out of scope for a `#[tokio::test]` suite). The cfg-gated wasm recipe is documented in RESEARCH.md and will be validated by tasks 07/09's wasm build check.
+2. **Global executor coupling within the binary.** All tests in this binary share one global `any_spawner` executor; that is the real-world constraint and the suite is written to be order-independent (`.ok()` init, no `Ok`-assertions).
+3. **No contradictions found** — every PLAN-locked decision held. If a future `reactive_graph` bump changes `try_set`/`try_update` disposed semantics or the `effects` gating, this suite is the tripwire.
+
+### Doc Updates Needed
+
+Note for `docs/DEVELOPMENT.md` (to be authored/updated by task 08 / doc_maintainer, not editable here): document that (a) core tests require the `effects` feature — already wired in dev-deps — for `Effect::new` to run, and (b) any test driving `spawn_local`/`watch` must use the `#[tokio::test(flavor = "current_thread")]` + `LocalSet::run_until` + `Executor::init_tokio().ok()` recipe pinned in SPIKE_NOTES.md Q5.

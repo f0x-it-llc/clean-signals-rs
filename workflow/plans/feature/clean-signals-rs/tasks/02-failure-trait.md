@@ -31,3 +31,32 @@
 
 - Do not add `thiserror` usage in the trait itself; fixtures may implement Display by hand to keep the core dependency-light (thiserror is available if it reads cleaner — it is pre-declared).
 - Do NOT port Dart's `UnexpectedFailure` — PLAN.md design delta #2.
+
+---
+
+## Completion Summary
+
+**Status:** Done
+**Branch:** worktree-wf_b6ff6edf-1a2-2
+
+### Files Modified
+
+| File | Changes |
+|------|---------|
+| `crates/clean-signals/src/failure.rs` | Implemented `Failure` trait (verbatim to PLAN.md signature) with rustdoc stating the layer rule; added `fixtures` module (`NetworkFailure`, `ValidationFailure`, gated on `cfg(any(test, feature = "test-fixtures"))`) with hand-written `Display` impls; added unit tests covering default `user_message`/`is_retryable`, both fixtures, and a blanket-usage `AppFailure` enum with exhaustive matching. |
+
+### Notable Decisions/Tradeoffs
+
+1. **Hand-written `Display` for fixtures**: Kept `thiserror` unused in this module per the task notes, using plain `impl fmt::Display` for `NetworkFailure`/`ValidationFailure` to keep the core dependency-light; both derive `Clone, Debug, PartialEq, Eq` as required.
+2. **No `docs/` directory exists yet** (it's created by task 08) so `docs/ARCHITECTURE.md` / `CODE_STANDARDS.md` / `DEVELOPMENT.md` referenced by the implementor instructions were not present — implementation was grounded directly in `PLAN.md`'s Core API contract and `research/dart-test-spec.md` instead, matching the trait signature verbatim.
+
+### Testing Performed
+
+- `cargo test -p clean-signals failure` - Passed (5 tests)
+- `cargo clippy -p clean-signals -- -D warnings` - Passed (clean)
+- `cargo clippy -p clean-signals --all-targets -- -D warnings` - Passed (clean)
+- `cargo clippy -p clean-signals --all-targets --features test-fixtures -- -D warnings` - Passed (clean)
+
+### Risks/Limitations
+
+None — module is self-contained with no dependencies on other unimplemented modules.

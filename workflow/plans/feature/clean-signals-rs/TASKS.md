@@ -21,8 +21,8 @@ Wave 5: 09-example-app          10-cupline-retrofit                (depend on 07
 
 | # | Task | Status | Complexity | Depends On | Modules |
 |---|------|--------|------------|------------|---------|
-| 1 | [01-spike-reactive-graph](tasks/01-spike-reactive-graph.md) | Not Started | high | - | `crates/clean-signals/tests/spike_reactive_graph.rs`, `research/SPIKE_NOTES.md` |
-| 2 | [02-failure-trait](tasks/02-failure-trait.md) | Not Started | medium | - | `crates/clean-signals/src/failure.rs` |
+| 1 | [01-spike-reactive-graph](tasks/01-spike-reactive-graph.md) | ✅ Done | high | - | `crates/clean-signals/tests/spike_reactive_graph.rs`, `research/SPIKE_NOTES.md` |
+| 2 | [02-failure-trait](tasks/02-failure-trait.md) | ✅ Done | medium | - | `crates/clean-signals/src/failure.rs` |
 | 3 | [03-use-case](tasks/03-use-case.md) | Not Started | medium | 02 | `crates/clean-signals/src/use_case.rs` |
 | 4 | [04-retry-time](tasks/04-retry-time.md) | Not Started | medium | 02 | `crates/clean-signals/src/retry.rs`, `src/time.rs` |
 | 5 | [05-activity-async-state](tasks/05-activity-async-state.md) | Not Started | medium | 02 (reads 01 notes) | `crates/clean-signals/src/activity.rs`, `src/async_state.rs` |
@@ -30,7 +30,7 @@ Wave 5: 09-example-app          10-cupline-retrofit                (depend on 07
 | 7 | [07-leptos-integration](tasks/07-leptos-integration.md) | Not Started | high | 06 | `crates/clean-signals-leptos/src/*` |
 | 8 | [08-docs-and-agents-template](tasks/08-docs-and-agents-template.md) | Not Started | medium (Agent: doc_maintainer) | 06 | `docs/*.md`, `templates/AGENTS.md` |
 | 9 | [09-example-app](tasks/09-example-app.md) | Not Started | medium | 07 | `examples/team-demo/src/*` |
-| 10 | [10-cupline-retrofit](tasks/10-cupline-retrofit.md) | Not Started | high | 06,07 | **cupline repo** (branch `clean-signals-retrofit`) |
+| 10 | [10-cupline-retrofit](tasks/10-cupline-retrofit.md) | ⏸ Deferred (user, 2026-07-06) | high | 06,07 | **cupline repo** — NOT part of this pipeline; user will do this later |
 
 ## File Overlap Analysis
 
@@ -66,7 +66,7 @@ See PLAN.md Success Criteria. Verify commands (until docs/DEVELOPMENT.md exists)
 
 ## Notes
 
-- Task 10 lands on a branch in the cupline repo and is NEVER merged by this pipeline.
+- Task 10 DEFERRED by user (2026-07-06): do not implement anything in the cupline repo in this pipeline. The task file stays as a ready-to-run spec for later. Wave 5 = task 09 only.
 - If task 01 refutes a PLAN.md assumption (spawn_local recipe, Effect usability), the conductor updates PLAN.md + task 06 before Wave 3 dispatch.
 
 ## Pipeline State (durable — survives context compaction)
@@ -74,7 +74,7 @@ See PLAN.md Success Criteria. Verify commands (until docs/DEVELOPMENT.md exists)
 - PHASE_BASE: `28d6aaa` (scaffold commit, Wave 0 done)
 - WORKING_BRANCH: `master`
 - Plan approval: delegated to conductor by user; approved 2026-07-06.
-- Cupline retrofit: branch-only, never merged by pipeline.
+- Cupline retrofit: DEFERRED by user — no cupline writes in this pipeline.
 
 ## Phase Review
 

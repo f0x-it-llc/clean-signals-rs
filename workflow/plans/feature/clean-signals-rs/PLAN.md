@@ -163,7 +163,7 @@ pub fn watch_interval(period: Duration, f: impl Fn() + 'static);                
 - [ ] Core crate has no leptos/DOM dependency; `cargo check -p clean-signals --target wasm32-unknown-unknown` passes.
 - [ ] All 32 Dart-pinned behaviors have passing Rust equivalents.
 - [ ] Example app: controllers unit-tested natively with fake repos; wasm build check passes.
-- [ ] Cupline `clean-signals-retrofit` branch: OrdersPage reduced to a dumb view over `OrdersController`; controller covered by native tests with a fake repository; `cargo check` for cl-dashboard passes on the branch.
+- ~~Cupline retrofit~~ — DEFERRED by user (2026-07-06); task file `tasks/10-cupline-retrofit.md` kept as the spec for later work in the cupline repo.
 - [ ] docs/ + templates/AGENTS.md exist and pass doc-standards boundaries.
 
 ## References
