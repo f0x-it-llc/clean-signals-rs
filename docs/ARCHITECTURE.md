@@ -15,6 +15,7 @@ failures-as-events — built on Leptos's own reactive primitives
 | `crates/clean-signals` | Core framework: `Failure`, `UseCase`/`StreamUseCase`, `RetryPolicy`, `time::sleep`, `ActivityTracker`, `AsyncState`, `ControllerCore`. Reactivity-aware but DOM-free — depends only on `reactive_graph`, `any_spawner`, `async-trait`, `futures`. Never imports leptos. |
 | `crates/clean-signals-leptos` | Leptos 0.8 integration: component-scoped controller lifecycle (`use_controller`), `AsyncView`, failure listening, an interval helper. The only crate permitted to depend on `leptos`. |
 | `examples/team-demo` | CSR Leptos app exercising both crates end to end: a small team-roster feature slice. |
+| `examples/team-demo-ssr` | The same team-roster feature slice as an SSR + hydrate (axum) Leptos app — demonstrates the architecture is render-mode-agnostic; see "SSR Applications" below. |
 
 ## Layer Dependencies
 
@@ -104,6 +105,40 @@ crate is portable to the browser target without pulling in DOM APIs.
 - **Cancellation is drop-based, not token-based.** `watch`'s abort happens
   when its `WatchHandle` (or the owning `ControllerCore`) is dropped — no
   separate cancellation-token type to thread through call sites.
+
+## SSR Applications
+
+`examples/team-demo-ssr` ports `examples/team-demo`'s team-roster feature
+slice to a Leptos SSR + hydrate (axum) app. The domain and presentation
+layers — entities, repository trait, use cases, controller, pages — are
+identical to the CSR version; only the composition roots and the data
+layer's transport change.
+
+- **Two cfg-gated composition roots.** A server root (`#[cfg(feature =
+  "ssr")]`, axum + `leptos_axum`) constructs server-side infra (an in-memory
+  store, here) and serves the app; a client root (a plain component,
+  rendered inside the server's HTML shell and hydrated via `#[cfg(feature =
+  "hydrate")]`) constructs the repository and mounts the same page component
+  used by both server render and client hydration.
+- **Repository transport.** The data layer's repository implementation calls
+  Leptos server functions (`#[server]`) instead of an in-process source; on
+  the client build the macro compiles them to an HTTP call, on the server
+  build to an in-process call. Exactly one conversion site maps
+  `ServerFnError` to the app's `Failure` type — the same transport-error
+  boundary discipline as the CSR demo.
+- **Initial-load strategy (SSR-shell).** The controller's initial load fires
+  on the client only, gated on the `wasm32` target rather than a feature —
+  the server renders the `AsyncState::Loading` shell and never touches the
+  transport, since effects/loads don't run during a synchronous SSR render.
+  That keeps the server-rendered HTML identical to what the
+  freshly-hydrated client produces, so there is no hydration mismatch.
+- **Non-goal:** bridging first-paint server data into the initial
+  `AsyncState` via a `Resource` (so the server-rendered HTML already carries
+  real data instead of the loading shell) is deliberately out of scope until
+  an app needs it — YAGNI.
+
+See `examples/team-demo` (CSR) and `examples/team-demo-ssr` (SSR + hydrate)
+for the concrete diff.
 
 ## Key Types
 

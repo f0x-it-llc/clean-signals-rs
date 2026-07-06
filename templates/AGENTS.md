@@ -23,7 +23,7 @@ presentation ──▶ domain ◀── data
 | Layer | MAY import | MUST NOT import |
 | --- | --- | --- |
 | `domain/` | `clean_signals`, other files in the same feature's domain, the crate's shared failure module | `leptos`, `reactive_graph`, any transport crate (`reqwest`, `tonic`, a DB driver), `data/`, `presentation/` |
-| `data/` | `clean_signals`, own feature's `domain/`, shared infra (failure mapping, HTTP/DB clients), transport crates | `leptos`, `reactive_graph`, `presentation/`, other features' `data/` |
+| `data/` | `clean_signals`, own feature's `domain/`, shared infra (failure mapping, HTTP/DB clients), transport crates; **SSR apps only:** `leptos`'s server-function transport (`#[server]`, `ServerFnError`, server-body-only `use_context`) | `reactive_graph`, `presentation/`, other features' `data/`, any reactive/DOM/view `leptos` types (signals, `view!`, components) |
 | `presentation/` | `clean_signals`, `clean-signals-leptos`, `leptos`, `reactive_graph`, own feature's `domain/`, other features' `presentation/` components | any `data/` file, transport crates, wire-format DTOs |
 
 Cross-feature communication happens through presentation (controllers/
@@ -87,6 +87,12 @@ src/features/<feature>/
   transport error may cross the repository boundary.
 - Transient errors (timeouts, 5xx, dropped connections) map to a failure with
   `is_retryable() == true`; permanent ones (404, validation) do not.
+- SSR apps' data layer may import Leptos's server-function transport
+  (`#[server]`, `ServerFnError`, and server-body-only `use_context`) —
+  server functions are the transport, analogous to an HTTP client. This is
+  the only sanctioned `leptos` import in `data/`: no reactive, DOM, or view
+  types (signals, `view!`, components) may cross into `data/`, SSR or
+  otherwise.
 
 ## Controller rules
 
@@ -130,6 +136,26 @@ src/features/<feature>/
 - Fakes/test doubles are passed as constructor arguments, so tests can swap
   in fake repositories without touching the composition root.
 
+## SSR composition roots
+
+- SSR + hydrate apps have **two** cfg-gated composition roots instead of
+  one: a server root (`#[cfg(feature = "ssr")]`, typically axum +
+  `leptos_axum`) that constructs server-side infra and provides it via
+  Leptos context, and a client root — a plain component, rendered inside
+  the server's HTML shell and hydrated on the client (`#[cfg(feature =
+  "hydrate")]`) — that constructs the repository and mounts the page. Both
+  roots mount the same page component; that sameness is what keeps the
+  presentation layer render-mode-agnostic.
+- Server functions (`#[server]`) are the data layer's transport for SSR
+  apps — see the `data/` carve-out above.
+- Controllers and pages stay render-mode-agnostic: no `cfg(feature =
+  "ssr")`/`cfg(feature = "hydrate")` in `presentation/`. The one sanctioned
+  render-mode conditional is target-gating (`#[cfg(target_arch =
+  "wasm32")]`) around the initial-load spawn, so the server renders the
+  loading shell and the client fires the load post-hydration. See
+  `examples/team-demo-ssr` and `docs/ARCHITECTURE.md`'s "SSR Applications"
+  section.
+
 ## Testing rules
 
 - Controllers are tested **natively** (no DOM) against fake repositories —
@@ -141,6 +167,12 @@ src/features/<feature>/
   plain `#[tokio::test]` panics on `spawn_local`.
 - Never sleep to wait for async work in a test; use
   `any_spawner::Executor::tick().await` as the deterministic pump.
+- Under an `ssr`/`hydrate` feature graph, `leptos_axum` transitively enables
+  `reactive_graph`'s `sandboxed-arenas` feature, so native controller tests
+  must create an active `Owner` before constructing any signal:
+  `let owner = Owner::new(); owner.set();`, one line per test (see
+  `examples/team-demo-ssr`'s `ssr_test_owner()` helper). CSR-only builds
+  never activate that feature and need no such setup.
 
 ## Failures
 

@@ -63,7 +63,9 @@ cargo clippy --workspace --all-targets -- -D warnings
 cargo check -p clean-signals --target wasm32-unknown-unknown
 ```
 
-## Run the example app
+## Run the example apps
+
+### `team-demo` (CSR)
 
 ```sh
 cd examples/team-demo
@@ -72,6 +74,22 @@ trunk serve --open
 
 This is a CSR (client-side-rendered) Leptos app; there is no backend to run
 alongside it.
+
+### `team-demo-ssr` (SSR + hydrate)
+
+This example ships no `cargo-leptos` config, so it is verified by compiling
+both feature/target combinations plus native tests, rather than served:
+
+```sh
+cargo check -p team-demo-ssr --features ssr
+cargo check -p team-demo-ssr --features hydrate --target wasm32-unknown-unknown
+cargo test  -p team-demo-ssr --features ssr
+```
+
+See `examples/team-demo-ssr/src/lib.rs` rustdoc for what a full
+`cargo-leptos` setup (`cargo install cargo-leptos`, a
+`[package.metadata.leptos]` table, `cargo leptos watch`) would add to serve
+it end to end.
 
 ## The `effects` feature gotcha
 
