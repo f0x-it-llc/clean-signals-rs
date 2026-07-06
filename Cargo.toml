@@ -1,0 +1,32 @@
+[workspace]
+resolver = "3"
+members = [
+    "crates/clean-signals",
+    "crates/clean-signals-leptos",
+    "examples/team-demo",
+]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2024"
+license = "MIT"
+repository = "https://github.com/edstub/clean-signals-rs"
+
+[workspace.dependencies]
+clean-signals = { path = "crates/clean-signals" }
+clean-signals-leptos = { path = "crates/clean-signals-leptos" }
+
+reactive_graph = "0.2"
+any_spawner = "0.3"
+leptos = { version = "0.8", default-features = false }
+
+async-trait = "0.1"
+futures = "0.3"
+thiserror = "2"
+
+# native timers (target-gated in crates)
+tokio = { version = "1", default-features = false }
+# wasm timers (target-gated in crates)
+gloo-timers = { version = "0.3", features = ["futures"] }
+
+console_error_panic_hook = "0.1"

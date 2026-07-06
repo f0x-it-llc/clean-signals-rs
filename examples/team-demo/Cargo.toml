@@ -1,0 +1,18 @@
+[package]
+name = "team-demo"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+publish = false
+description = "clean-signals example app — team feature ported from the Dart clean_signals example (CSR)"
+
+[dependencies]
+clean-signals = { workspace = true, features = ["test-fixtures"] }
+clean-signals-leptos = { workspace = true }
+leptos = { workspace = true, features = ["csr"] }
+console_error_panic_hook = { workspace = true }
+
+[dev-dependencies]
+any_spawner = { workspace = true, features = ["tokio"] }
+tokio = { workspace = true, features = ["rt", "macros", "time", "sync"] }

@@ -1,0 +1,19 @@
+[package]
+name = "clean-signals-leptos"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "Leptos 0.8 integration for clean-signals: component-scoped controllers, AsyncView, failure listeners, safe polling"
+
+[dependencies]
+clean-signals = { workspace = true }
+leptos = { workspace = true }
+reactive_graph = { workspace = true }
+any_spawner = { workspace = true }
+futures = { workspace = true }
+
+[dev-dependencies]
+clean-signals = { workspace = true, features = ["test-fixtures", "effects"] }
+any_spawner = { workspace = true, features = ["tokio"] }
+tokio = { workspace = true, features = ["rt", "macros", "time", "sync"] }
