@@ -27,3 +27,41 @@
 2. Docs stand alone (no reliance on workflow/research files for meaning).
 3. AGENTS.md controller rule matches team-demo reality; async_trait convention shows the re-export.
 4. doc-standards content boundaries respected; size caps respected.
+
+---
+
+## Completion Summary
+
+**Status:** Done
+**Branch:** worktree-wf_357712b9-098-2
+
+### Files Modified
+
+| File | Changes |
+|------|---------|
+| `docs/ARCHITECTURE.md` | Overview no longer frames the crate as a "Rust port of the Dart clean_signals framework" — describes it as a clean-architecture framework for Leptos apps. `examples/team-demo` row drops the "ported from the Dart example" framing. "Design Deltas vs. the Dart Original" retitled "Design Rationale" and rewritten as six standalone decision+why bullets (exhaustive failure typing, std `Result`, composition over inheritance, `Memo` over `Effect`, channel-free `FailureSink`, drop-based `watch` cancellation) with the `research/SPIKE_NOTES.md` citation removed. |
+| `docs/CODE_STANDARDS.md` | "Dart-record-equivalent" wording replaced with plain "a small named struct, not a tuple". `cfg_attr` async_trait pattern section now shows the `clean_signals::async_trait` re-export form instead of raw `async_trait::async_trait`, with a note that it exists so downstream crates don't pin their own `async-trait` dependency. |
+| `docs/DEVELOPMENT.md` | Dropped the `research/SPIKE_NOTES.md` Q5 citation from the `watch`/`spawn_local` test recipe intro (recipe itself unchanged); repo-layout mention of the `research/` subdirectory under Workflow locations retained as-is (directory description, not doc justification). |
+| `templates/AGENTS.md` | Controller rule reworded: controllers import signal types via named imports from whichever of `leptos::prelude`/`reactive_graph` the crate already depends on, never a wildcard `leptos::prelude::*`, never render/DOM items — replacing the prior "may depend on `reactive_graph` signal types, never `leptos::prelude::*`" wording that contradicted minimal apps with no direct `reactive_graph` dependency. Added a Domain-rules bullet showing the `clean_signals::async_trait` cfg_attr pair for async use cases, cross-referencing `docs/CODE_STANDARDS.md` instead of duplicating rationale. |
+
+### Content Boundary Compliance
+
+- All updates within correct document boundaries: YES
+- Cross-contamination detected and fixed: N/A
+- No content duplicated across docs / into CLAUDE.md: YES (no `CLAUDE.md` exists in this repo; AGENTS.md async_trait note cross-references CODE_STANDARDS.md rather than restating the rationale)
+
+### Size Discipline
+
+| Doc | Lines before | Lines after | Under cap? |
+|-----|-------------|------------|-----------|
+| `docs/ARCHITECTURE.md` | 119 | 122 | YES |
+| `docs/CODE_STANDARDS.md` | 122 | 124 | YES |
+| `docs/DEVELOPMENT.md` | 135 | 134 | YES |
+| `templates/AGENTS.md` | 187 | 194 | YES |
+
+All four docs stayed well under their respective targets/hard caps; net line growth was minimal (retitled section replaced 1:1 at similar length, plus two small necessary additions in AGENTS.md for the async_trait convention and reworded controller rule).
+
+### Notable Decisions/Tradeoffs
+
+1. **AGENTS.md async_trait addition is new, not just reworded**: the task file asked for the re-export form to show up in "AGENTS.md's corresponding rule," but no async_trait rule previously existed there — added one concise bullet cross-referencing CODE_STANDARDS.md for rationale rather than duplicating the "why," to stay net-neutral on size.
+2. **cln-01 (code-side async_trait re-export) had not landed in this worktree** at time of writing — docs were updated to describe the target convention (`clean_signals::async_trait` re-export) per the task's explicit instruction to "document THAT convention, not the old one," since the two tasks land in parallel.

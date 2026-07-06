@@ -38,3 +38,49 @@
 2. Items 1-9 implemented as specified; new/adapted tests green (emit isolation, retry clamp, SlowTicker termination).
 3. team-demo no longer depends on async-trait directly; uses the core re-export.
 4. Full DoD + fmt check green; public API otherwise unchanged.
+
+---
+
+## Completion Summary
+
+**Status:** Done
+**Branch:** worktree-wf_357712b9-098-1
+
+### Files Modified
+
+| File | Changes |
+|------|---------|
+| `crates/clean-signals/src/lib.rs` | Added `pub use async_trait::async_trait;` re-export with dual-`cfg_attr` rustdoc (item 1). |
+| `crates/clean-signals/src/controller.rs` | Added `lock_recovering` + `prune_watch` helpers; replaced all 7 `.lock().unwrap_or_else(...)` sites and both prune sites (item 3); per-listener `catch_unwind` isolation in `FailureSink::emit` with wasm caveat (item 4); RemoveOnDrop rustdoc correction (item 2); `run` TOCTOU rustdoc section (item 6); SlowTicker fixture bounded to 2 items + debug_assert at gate park (item 7); adapted panicking-listener test to assert same-emit isolation; Dart-lineage scrub in module/type docs. |
+| `crates/clean-signals/src/use_case.rs` | StreamUseCase laziness contract in trait rustdoc (item 5); Dart-lineage scrub (module doc, Ticker/Counting/fixtures docs). |
+| `crates/clean-signals/src/retry.rs` | `max_attempts` clamp rustdoc on field + `new` (item 8); `new(0,_)` clamp test; Dart-lineage scrub on backoff default. |
+| `crates/clean-signals/src/activity.rs` | Dart-lineage scrub in module doc. |
+| `crates/clean-signals/src/async_state.rs` | Dart-lineage scrub (removed Dart `signals`/`AsyncDataReloading` framing). |
+| `crates/clean-signals-leptos/src/async_view.rs` | AsyncView clone-cost rustdoc section (item 9). |
+| `examples/team-demo/Cargo.toml` | Removed direct `async-trait` dep; description reworded (Dart scrub). |
+| `examples/team-demo/src/**` | Switched all `async_trait::async_trait` → `clean_signals::async_trait` (5 files); Dart-lineage scrub in `lib.rs` and `pages.rs`. |
+
+### Notable Decisions/Tradeoffs
+
+1. **Item 7 debug assertion placement**: Placed the fail-fast `debug_assert!` at the gate-park point inside the SlowTicker stream body (asserting the stashed gate receiver survived to item 2), rather than a "slot must be empty on entry" assert in `execute()`. The latter interpretation would fire in the registry/dispose-all tests, which deliberately construct multiple SlowTicker watches without taking the gate; the park-site assert only triggers on a genuinely lost gate and keeps all existing tests green.
+2. **cupline references left as-is**: `cupline`/`orders.rs` mentions in the leptos crate are a different project's pattern reference (design rationale for what a helper replaces), not Dart lineage, and fall outside the AC's `dart|flutter|AsyncDataReloading` grep. Left untouched to avoid scope creep.
+3. **emit swallows panics**: `catch_unwind` result is dropped (`let _ =`); the default panic hook still logs during unwind, satisfying the "debug_assert-free logging path" requirement without re-raising.
+
+### Testing Performed
+
+- `cargo build --workspace` - Passed
+- `cargo test --workspace` - Passed (all suites; new tests `new_clamps_zero_max_attempts_to_one`, `failure_sink_panicking_listener_is_isolated_and_does_not_poison` green)
+- `cargo clippy --workspace --all-targets -- -D warnings` - Passed
+- `cargo clippy -p clean-signals --all-targets --features test-fixtures -- -D warnings` - Passed
+- `cargo check -p clean-signals --target wasm32-unknown-unknown` - Passed
+- `cargo check -p clean-signals-leptos --target wasm32-unknown-unknown` - Passed
+- `cargo test -p clean-signals --test spike_reactive_graph` - Passed (10 tests)
+- `cargo fmt --all -- --check` - Passed
+- `cargo test -p clean-signals controller` x3 - Passed (stable, 24 tests each run)
+- `grep -rniE 'dart|flutter|AsyncDataReloading' crates/ examples/` - Zero matches
+- `cargo tree -p team-demo -i async-trait` - team-demo reaches async-trait only transitively (via clean-signals re-export + leptos), no direct dep
+
+### Risks/Limitations
+
+1. **wasm32 emit isolation**: `catch_unwind` cannot intercept a panicking listener on wasm32 (panics abort there); documented as a caveat in the `FailureSink` rustdoc. No behavior change on native.
+2. **TOCTOU on failure emission**: The cross-thread dispose/emit race remains a narrow accepted limitation (documented per the ACCEPTED list); signal writes are unaffected (all `try_*`).

@@ -35,7 +35,7 @@ crate is portable to the browser target without pulling in DOM APIs.
 - **`Failure`** — trait every app-specific failure enum implements
   (`Debug + Display + Send + Sync + 'static`, `user_message()`,
   `is_retryable()`). Apps define one closed enum per app; there is no shared
-  "unexpected failure" catch-all type (see Design Deltas).
+  "unexpected failure" catch-all type (see Design Rationale).
 - **`UseCase` / `StreamUseCase`** — the single-call and streaming execution
   contracts. `execute` returns `Result<Output, Failure>` directly (single-call)
   or a boxed stream of `Result` items (streaming). Async trait methods are
