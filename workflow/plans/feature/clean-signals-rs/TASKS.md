@@ -69,6 +69,13 @@ See PLAN.md Success Criteria. Verify commands (until docs/DEVELOPMENT.md exists)
 - Task 10 lands on a branch in the cupline repo and is NEVER merged by this pipeline.
 - If task 01 refutes a PLAN.md assumption (spawn_local recipe, Effect usability), the conductor updates PLAN.md + task 06 before Wave 3 dispatch.
 
+## Pipeline State (durable — survives context compaction)
+
+- PHASE_BASE: `28d6aaa` (scaffold commit, Wave 0 done)
+- WORKING_BRANCH: `master`
+- Plan approval: delegated to conductor by user; approved 2026-07-06.
+- Cupline retrofit: branch-only, never merged by pipeline.
+
 ## Phase Review
 
 | Round | Verdict | Review | Reviewed HEAD |
