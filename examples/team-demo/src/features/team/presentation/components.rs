@@ -36,8 +36,12 @@ pub fn member_row(
             <button on:click=move |_| {
                 let id = id.clone();
                 let name = name_input.get_untracked();
+                // Gate the controller read with `try_get_value()` to avoid
+                // panicking if the component unmounts before this spawned microtask
+                // runs (a disposal race).
                 leptos::task::spawn_local(async move {
-                    controller.get_value().rename(id, name).await;
+                    let Some(c) = controller.try_get_value() else { return; };
+                    c.rename(id, name).await;
                 });
             }>
                 "Rename"

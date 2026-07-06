@@ -35,8 +35,12 @@ pub fn TeamPage(repo: Arc<dyn TeamRepository + Send + Sync>) -> impl IntoView {
     // `initState`. `spawn_local` is the unavoidable, minimal glue needed to
     // invoke async work from synchronous component setup; `load()` itself is
     // still fully routed through `ControllerCore::run_into`.
+    //
+    // Gate the controller read with `try_get_value()` to avoid panicking if
+    // the component unmounts before this spawned microtask runs (a disposal race).
     leptos::task::spawn_local(async move {
-        controller.get_value().load().await;
+        let Some(c) = controller.try_get_value() else { return; };
+        c.load().await;
     });
 
     let members_state = controller.with_value(|c| c.members);
