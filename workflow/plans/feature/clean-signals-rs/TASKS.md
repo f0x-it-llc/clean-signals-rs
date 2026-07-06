@@ -29,7 +29,7 @@ Wave 5: 09-example-app          10-cupline-retrofit                (depend on 07
 | 6 | [06-controller](tasks/06-controller.md) | ✅ Done | high | 01,02,03,04,05 | `crates/clean-signals/src/controller.rs`, `src/lib.rs` |
 | 7 | [07-leptos-integration](tasks/07-leptos-integration.md) | ✅ Done | high | 06 | `crates/clean-signals-leptos/src/*` |
 | 8 | [08-docs-and-agents-template](tasks/08-docs-and-agents-template.md) | ✅ Done | medium (Agent: doc_maintainer) | 06 | `docs/*.md`, `templates/AGENTS.md` |
-| 9 | [09-example-app](tasks/09-example-app.md) | Not Started | medium | 07 | `examples/team-demo/src/*` |
+| 9 | [09-example-app](tasks/09-example-app.md) | ✅ Done | medium | 07 | `examples/team-demo/src/*` |
 | 10 | [10-cupline-retrofit](tasks/10-cupline-retrofit.md) | ⏸ Deferred (user, 2026-07-06) | high | 06,07 | **cupline repo** — NOT part of this pipeline; user will do this later |
 
 ## File Overlap Analysis
@@ -88,3 +88,4 @@ See PLAN.md Success Criteria. Verify commands (until docs/DEVELOPMENT.md exists)
 - Wave 2 (03,04,05): validator verdicts FAIL/CONCERN/CONCERN — the FAIL and scope-violation concerns were evidence-invalidated (worktrees forked pre-3548370; merge-base diffs prove each branch touched only its scoped files). Conductor override → merged. Real notes kept: 04 `backoff_factor` default = 2.0 matching Dart source (task text said 1.0 but instructed matching Dart; Dart wins); 05 summary test-count typo (10 not 12) — cosmetic. Integration PASS (48 tests).
 - Wave 3 (06): sequential main-loop implementor (opus). Validator PASS (19 controller tests; deviations documented: Params: Clone, on_dispose-after-dispose immediate, no emit_failures arg, no Effect in core).
 - Wave 4 (07,08): PASS+PASS, integration PASS (74 tests, both crates wasm-clean). Post-merge: doc_maintainer patched AGENTS.md (+1 line, Arc for provide_controller); conductor fixed pre-existing rustdoc link in async_state.rs (from wave 2).
+- Wave 5 (09): blocked once on missing async-trait dep in team-demo (Wave-0 gap; conductor fixed, d7d5615), then Done. Validator PASS (20 tests; layout = AGENTS.md reference). Friction findings carried to review: async-trait re-export gap; reactive_graph-via-leptos-prelude wording in AGENTS.md; view! angle-bracket parsing in closure types.
