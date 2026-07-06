@@ -17,23 +17,21 @@
 //!   [`is_disposed`](ControllerCore::is_disposed) lets the embedding controller
 //!   guard its own post-`await` signal writes.
 //!
-//! # Deviations from the Dart port / PLAN contract
+//! # Design notes
 //!
 //! - **`U::Params: Clone`** is required on [`run`](ControllerCore::run) and
 //!   [`run_into`](ControllerCore::run_into): the retry loop re-invokes the use
-//!   case with the same params, and Rust (unlike Dart) moves them into the
-//!   first call. [`crate::use_case::NoParams`] is `Copy`, so the common case is
-//!   free. (The locked PLAN signature omitted this bound; it is a mechanical
-//!   consequence of retries.)
+//!   case with the same params, and the first call moves them by value, so a
+//!   retry needs its own copy. [`crate::use_case::NoParams`] is `Copy`, so the
+//!   common case is free — the bound is a mechanical consequence of retries.
 //! - **No `auto_effect`.** Per `research/SPIKE_NOTES.md` Q4, `Effect::new`
 //!   forces the `effects` feature + a `LocalSet` on every consumer/test. Core
 //!   library code therefore uses [`Memo`] + explicit methods only; any
 //!   render-glue effect belongs in the `clean-signals-leptos` crate (task 07),
 //!   keeping controllers fully testable without the `effects` feature.
 //! - **`on_dispose` after `dispose` runs the callback immediately** (see that
-//!   method's docs). Dart silently appends it to a drained list (dropping it);
-//!   running it immediately is strictly safer — the resource still gets cleaned
-//!   up rather than leaked.
+//!   method's docs): running it immediately is strictly safer than silently
+//!   dropping it, since the resource still gets cleaned up rather than leaked.
 
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, Weak};
@@ -47,7 +45,7 @@ use reactive_graph::signal::RwSignal;
 use reactive_graph::traits::{GetUntracked, Set, Update};
 
 use crate::activity::ActivityTracker;
-use crate::async_state::{to_reloading, AsyncState};
+use crate::async_state::{AsyncState, to_reloading};
 use crate::failure::Failure;
 use crate::retry::RetryPolicy;
 use crate::use_case::{StreamUseCase, UseCase};
@@ -68,6 +66,29 @@ type Listeners<F> = Arc<Mutex<Vec<(u64, Listener<F>)>>>;
 /// [`WatchHandle::cancel`] is called, so a long-lived controller re-watched many
 /// times never accumulates dead handles.
 type WatchList = Vec<(u64, AbortHandle)>;
+
+/// Locks `m`, recovering the inner guard if the mutex was poisoned.
+///
+/// Every mutex in this module guards a short, panic-safe critical section (a
+/// `Vec` push/retain/drain/snapshot) and no listener or user code runs while a
+/// lock is held, so a poisoning panic never leaves a torn invariant behind.
+/// Recovering keeps the sink and watch registry fully usable after such a panic
+/// instead of cascading `PoisonError` unwraps through the framework.
+fn lock_recovering<T>(m: &Mutex<T>) -> std::sync::MutexGuard<'_, T> {
+    m.lock().unwrap_or_else(|e| e.into_inner())
+}
+
+/// Upgrades `registry` and removes the watch entry keyed by `id`.
+///
+/// Shared by [`WatchHandle::cancel`] and [`RemoveOnDrop::drop`] — the two places
+/// a watch prunes itself. A dead `Weak` (the owning controller already dropped,
+/// or an inert disposed-controller handle) upgrades to `None` and prunes
+/// nothing.
+fn prune_watch(registry: &Weak<Mutex<WatchList>>, id: u64) {
+    if let Some(registry) = registry.upgrade() {
+        lock_recovering(&registry).retain(|(entry_id, _)| *entry_id != id);
+    }
+}
 
 /// Per-call knobs for [`ControllerCore::run`] / [`ControllerCore::run_into`].
 ///
@@ -114,9 +135,15 @@ impl<F> Default for RunOptions<F> {
 ///   emission (the snapshot was already taken); only *subsequent* emits skip
 ///   it. Likewise a listener subscribed mid-`emit` first fires on the next
 ///   emission.
-/// - A panicking listener propagates the panic out of `emit` but never poisons
-///   the sink's internal lock, so later `subscribe`/`emit`/unsubscribe calls
-///   keep working. Remaining lock sites also recover from poisoning defensively.
+/// - A panicking listener is **isolated**: each listener is invoked inside
+///   [`std::panic::catch_unwind`], so one bad listener neither skips the
+///   remaining listeners in the same `emit` nor aborts the driver task that
+///   emitted the failure, and never poisons the sink's internal lock — later
+///   `subscribe`/`emit`/unsubscribe calls keep working. The panic is swallowed
+///   (the default panic hook still prints it); nothing is re-raised out of
+///   `emit`. **Caveat:** on `wasm32`, where a panic aborts rather than unwinds,
+///   `catch_unwind` cannot intercept it, so a panicking listener there still
+///   tears down the whole task.
 pub struct FailureSink<F> {
     listeners: Listeners<F>,
     next_id: Arc<AtomicU64>,
@@ -138,20 +165,14 @@ impl<F: 'static> FailureSink<F> {
     /// [`Subscription::forget`] to leak it (fire until the sink is dropped).
     pub fn subscribe(&self, f: impl Fn(&F) + Send + Sync + 'static) -> Subscription {
         let id = self.next_id.fetch_add(1, Ordering::SeqCst);
-        self.listeners
-            .lock()
-            .unwrap_or_else(|e| e.into_inner())
-            .push((id, Arc::new(f)));
+        lock_recovering(&self.listeners).push((id, Arc::new(f)));
 
         // Type-erase removal so `Subscription` need not be generic over `F`.
         let listeners = Arc::downgrade(&self.listeners);
         Subscription {
             remove: Some(Box::new(move || {
                 if let Some(listeners) = listeners.upgrade() {
-                    listeners
-                        .lock()
-                        .unwrap_or_else(|e| e.into_inner())
-                        .retain(|(lid, _)| *lid != id);
+                    lock_recovering(&listeners).retain(|(lid, _)| *lid != id);
                 }
             })),
         }
@@ -162,18 +183,23 @@ impl<F: 'static> FailureSink<F> {
     ///
     /// Listeners are snapshotted under the lock and invoked with **no lock
     /// held**, so a panicking or re-entrant listener can neither poison nor
-    /// deadlock the sink. See the [type docs](FailureSink#re-entrancy-and-panics)
-    /// for the exact mid-`emit` subscribe/unsubscribe semantics.
+    /// deadlock the sink. Each listener is additionally wrapped in
+    /// [`std::panic::catch_unwind`], so a panic in one listener does not skip
+    /// the rest of this emission (see the caveat about `wasm32` in the
+    /// [type docs](FailureSink#re-entrancy-and-panics)). See those docs for the
+    /// exact mid-`emit` subscribe/unsubscribe semantics.
     pub fn emit(&self, failure: &F) {
-        let snapshot: Vec<Listener<F>> = self
-            .listeners
-            .lock()
-            .unwrap_or_else(|e| e.into_inner())
+        let snapshot: Vec<Listener<F>> = lock_recovering(&self.listeners)
             .iter()
             .map(|(_, listener)| Arc::clone(listener))
             .collect();
         for listener in &snapshot {
-            listener(failure);
+            // Isolate each listener: a panic in one must not skip the remaining
+            // listeners nor abort the driver task that called `emit`. The panic
+            // is swallowed here (the process-wide panic hook still logs it); we
+            // deliberately re-raise nothing. On `wasm32` panics abort rather
+            // than unwind, so this guard is ineffective there — see type docs.
+            let _ = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| listener(failure)));
         }
     }
 }
@@ -221,10 +247,10 @@ impl Drop for Subscription {
 
 /// Handle to a running [`ControllerCore::watch`] subscription.
 ///
-/// Dropping the handle does **not** cancel the watch (matching the Dart
-/// `StreamSubscription` return, which callers routinely ignore); the watch runs
-/// until the controller is [`dispose`](ControllerCore::dispose)d or
-/// [`cancel`](Self::cancel) is called explicitly.
+/// Dropping the handle does **not** cancel the watch (callers routinely ignore
+/// the returned handle); the watch runs until the controller is
+/// [`dispose`](ControllerCore::dispose)d or [`cancel`](Self::cancel) is called
+/// explicitly.
 pub struct WatchHandle {
     abort: AbortHandle,
     /// Back-reference to the owning controller's watch registry, so `cancel`
@@ -241,20 +267,22 @@ impl WatchHandle {
     /// poll) and prunes its registry entry synchronously. Idempotent.
     pub fn cancel(&self) {
         self.abort.abort();
-        if let Some(registry) = self.registry.upgrade() {
-            registry
-                .lock()
-                .unwrap_or_else(|e| e.into_inner())
-                .retain(|(id, _)| *id != self.id);
-        }
+        prune_watch(&self.registry, self.id);
     }
 }
 
-/// RAII guard that removes a watch's entry from the registry when its driver
-/// future is dropped — which happens on normal stream completion *and* on abort
-/// (`futures::future::Abortable` drops its wrapped future in place the moment it
-/// observes the abort). Lives inside the driver's async frame so both paths
-/// prune. Idempotent with [`WatchHandle::cancel`]'s proactive prune.
+/// RAII guard that prunes a watch's registry entry when the guard is dropped.
+///
+/// The guard lives inside the driver's async frame, so it is dropped exactly
+/// when that future is:
+///
+/// - **normal completion** — the stream ends and the async frame returns
+///   (scope exit), dropping the guard along with it;
+/// - **abort** — whenever the executor drops the aborted task,
+///   [`futures::future::Abortable`] drops the wrapped future in place, taking
+///   the guard's frame with it. This path is *redundant* with the proactive
+///   prune [`WatchHandle::cancel`] (and [`ControllerCore::dispose`]) already
+///   performs — both are idempotent, so pruning twice is harmless.
 struct RemoveOnDrop {
     registry: Weak<Mutex<WatchList>>,
     id: u64,
@@ -262,19 +290,14 @@ struct RemoveOnDrop {
 
 impl Drop for RemoveOnDrop {
     fn drop(&mut self) {
-        if let Some(registry) = self.registry.upgrade() {
-            registry
-                .lock()
-                .unwrap_or_else(|e| e.into_inner())
-                .retain(|(id, _)| *id != self.id);
-        }
+        prune_watch(&self.registry, self.id);
     }
 }
 
 /// The orchestration core an app controller embeds by composition.
 ///
 /// Generic over the app's failure type `F`. See the module docs for the full
-/// contract and its deviations from the Dart original.
+/// contract and its design notes.
 pub struct ControllerCore<F: Failure + Clone> {
     /// Owns the activity signals so `dispose` can release them.
     owner: Owner,
@@ -319,13 +342,29 @@ impl<F: Failure + Clone> ControllerCore<F> {
     /// failure is emitted on the [`FailureSink`] (never intermediate ones), and
     /// only when `opts.emit_failure` is `true` and the controller is not
     /// disposed.
-    pub async fn run<U>(&self, uc: &U, params: U::Params, opts: RunOptions<F>) -> Result<U::Output, F>
+    ///
+    /// # Dispose race (narrow, accepted)
+    ///
+    /// The `!is_disposed()` gate on failure emission is an unsynchronized read,
+    /// not a lock: a `dispose()` on another thread that lands *between* this
+    /// check and the `emit` can still deliver one final failure to listeners
+    /// that were live when the check ran. This is a deliberately accepted
+    /// limitation — the hot path takes no lock to coordinate emission with
+    /// disposal. Signal writes never race this way: every `run_into` write to
+    /// the caller's signal goes through `try_*`, so a post-dispose write is an
+    /// inert no-op regardless of ordering.
+    pub async fn run<U>(
+        &self,
+        uc: &U,
+        params: U::Params,
+        opts: RunOptions<F>,
+    ) -> Result<U::Output, F>
     where
         U: UseCase<Failure = F>,
         U::Params: Clone,
     {
-        // Begin activity once around the whole loop (retries included), mirroring
-        // Dart's `_activity.track(_runWithRetry(...))`. Held until `run` returns.
+        // Begin activity once around the whole loop (retries included), so
+        // `is_loading` stays true across retry waits. Held until `run` returns.
         let _guard = if opts.track_activity {
             Some(self.activity.begin())
         } else {
@@ -447,7 +486,7 @@ impl<F: Failure + Clone> ControllerCore<F> {
         // `is_disposed` read, id allocation and push happen under the lock — no
         // user code (`uc.execute`, `on_data`, the spawn) runs while it is held.
         let id = {
-            let mut watches = self.watches.lock().unwrap_or_else(|e| e.into_inner());
+            let mut watches = lock_recovering(&self.watches);
             if self.is_disposed() {
                 // Already disposed: never spawn a driver. Return an inert handle
                 // (already aborted, holds no registry entry) whose `cancel` is a
@@ -504,10 +543,7 @@ impl<F: Failure + Clone> ControllerCore<F> {
         if self.is_disposed() {
             cleanup();
         } else {
-            self.cleanups
-                .lock()
-                .unwrap_or_else(|e| e.into_inner())
-                .push(Box::new(cleanup));
+            lock_recovering(&self.cleanups).push(Box::new(cleanup));
         }
     }
 
@@ -548,7 +584,7 @@ impl<F: Failure + Clone> ControllerCore<F> {
         // Flip `disposed` and drain+abort watches under the watches lock, so a
         // concurrent `watch` cannot interleave its register between the two.
         {
-            let mut watches = self.watches.lock().unwrap_or_else(|e| e.into_inner());
+            let mut watches = lock_recovering(&self.watches);
             if self.disposed.swap(true, Ordering::SeqCst) {
                 return; // already disposed
             }
@@ -561,8 +597,7 @@ impl<F: Failure + Clone> ControllerCore<F> {
         self.activity.dispose();
 
         // Run cleanups in reverse registration order.
-        let mut cleanups =
-            std::mem::take(&mut *self.cleanups.lock().unwrap_or_else(|e| e.into_inner()));
+        let mut cleanups = std::mem::take(&mut *lock_recovering(&self.cleanups));
         while let Some(cleanup) = cleanups.pop() {
             cleanup();
         }
@@ -594,10 +629,15 @@ mod tests {
 
     // ---- helpers ------------------------------------------------------------
 
-    fn collector() -> (Arc<Mutex<Vec<NetworkFailure>>>, impl Fn(&NetworkFailure) + Send + Sync) {
+    fn collector() -> (
+        Arc<Mutex<Vec<NetworkFailure>>>,
+        impl Fn(&NetworkFailure) + Send + Sync,
+    ) {
         let store = Arc::new(Mutex::new(Vec::new()));
         let sink = Arc::clone(&store);
-        (store, move |f: &NetworkFailure| sink.lock().unwrap().push(f.clone()))
+        (store, move |f: &NetworkFailure| {
+            sink.lock().unwrap().push(f.clone())
+        })
     }
 
     fn ensure_executor() {
@@ -639,14 +679,14 @@ mod tests {
         }
     }
 
-    /// A stream that yields `Ok(1)` immediately, then parks on a
-    /// test-controlled gate before yielding item 2 — replacing a previous
-    /// internal `crate::time::sleep(50ms)` so `dispose` tests can prove a
-    /// driver task is aborted while genuinely parked mid-stream, with no
-    /// wall-clock wait involved. Each `execute()` call stashes a fresh gate
-    /// `Sender` in a thread-local slot, retrievable via
-    /// [`SlowTicker::take_gate`]; tests that never poll the stream past item
-    /// 1 (e.g. the registry/dispose-all tests) never touch it.
+    /// A bounded two-item stream: yields `Ok(1)` immediately, then parks on a
+    /// test-controlled gate before yielding `Ok(2)` and terminating (no
+    /// unbounded tail to keep polling). Using a gate instead of an internal
+    /// sleep lets `dispose` tests prove a driver task is aborted while
+    /// genuinely parked mid-stream, with no wall-clock wait involved. Each
+    /// `execute()` call stashes a fresh gate `Sender` in a thread-local slot,
+    /// retrievable via [`SlowTicker::take_gate`]; tests that never poll the
+    /// stream past item 1 (e.g. the registry/dispose-all tests) never touch it.
     struct SlowTicker;
 
     thread_local! {
@@ -674,14 +714,25 @@ mod tests {
         fn execute(&self, _p: ()) -> UseCaseStream<u32, NetworkFailure> {
             let (tx, rx) = futures::channel::oneshot::channel();
             SLOW_TICKER_GATE.with(|cell| *cell.borrow_mut() = Some(tx));
+            // Bounded: item 1 is immediate, item 2 parks on the gate, then the
+            // stream ends. No tail beyond item 2 that a driver could keep
+            // polling.
             stream::unfold((1u32, Some(rx)), |(n, rx)| async move {
-                if n > 1 {
-                    if let Some(rx) = rx {
-                        let _ = rx.await;
+                match n {
+                    1 => Some((Ok(1), (2, rx))),
+                    2 => {
+                        // The gate `Receiver` stashed by `execute` must have
+                        // been carried through to the park point; a missing gate
+                        // here means it was silently dropped rather than taken —
+                        // fail fast in debug builds instead of ticking on.
+                        debug_assert!(rx.is_some(), "SlowTicker gate lost before item 2");
+                        if let Some(rx) = rx {
+                            let _ = rx.await;
+                        }
+                        Some((Ok(2), (3, None)))
                     }
-                    return Some((Ok(n), (n + 1, None)));
+                    _ => None,
                 }
-                Some((Ok(n), (n + 1, rx)))
             })
             .boxed()
         }
@@ -702,7 +753,9 @@ mod tests {
         let (failures, listener) = collector();
         controller.failures().subscribe(listener).forget();
 
-        let result = controller.run(&Flaky::new(0), NoParams, RunOptions::default()).await;
+        let result = controller
+            .run(&Flaky::new(0), NoParams, RunOptions::default())
+            .await;
         assert_eq!(result, Ok(5));
         assert!(failures.lock().unwrap().is_empty());
         controller.dispose();
@@ -784,11 +837,17 @@ mod tests {
         // `execute`, so observing 'started' is race-free proof the state has
         // already changed — no wall-clock wait needed.
         started_rx.await.unwrap();
-        assert!(controller.is_loading().get_untracked(), "loading while gated");
+        assert!(
+            controller.is_loading().get_untracked(),
+            "loading while gated"
+        );
 
         gate.send(()).unwrap();
         assert_eq!(handle.await.unwrap(), Ok(5));
-        assert!(!controller.is_loading().get_untracked(), "not loading after");
+        assert!(
+            !controller.is_loading().get_untracked(),
+            "not loading after"
+        );
         controller.dispose();
     }
 
@@ -803,8 +862,10 @@ mod tests {
 
         let c = Arc::clone(&controller);
         let s = Arc::clone(&slow);
-        let handle =
-            tokio::spawn(async move { c.run_into(&*s, NoParams, state, RunOptions::default()).await });
+        let handle = tokio::spawn(async move {
+            c.run_into(&*s, NoParams, state, RunOptions::default())
+                .await
+        });
 
         // `run_into` flips the signal to `Loading` synchronously before
         // calling `execute`, so 'started' is race-free proof of the change.
@@ -834,8 +895,10 @@ mod tests {
         let slow = Arc::new(slow);
         let c = Arc::clone(&controller);
         let s = Arc::clone(&slow);
-        let handle =
-            tokio::spawn(async move { c.run_into(&*s, NoParams, state, RunOptions::default()).await });
+        let handle = tokio::spawn(async move {
+            c.run_into(&*s, NoParams, state, RunOptions::default())
+                .await
+        });
 
         // `run_into` flips the signal to `Reloading` synchronously before
         // calling `execute`, so 'started' is race-free proof of the change.
@@ -1141,28 +1204,40 @@ mod tests {
     }
 
     #[test]
-    fn failure_sink_panicking_listener_does_not_poison() {
+    fn failure_sink_panicking_listener_is_isolated_and_does_not_poison() {
         let sink = FailureSink::<NetworkFailure>::new();
-        let panicking = sink.subscribe(|_| panic!("listener boom"));
 
-        // The listener panic propagates out of `emit`, but because listeners are
-        // invoked with no lock held it must NOT poison the internal mutex.
+        // A panicking listener, then a well-behaved one subscribed AFTER it so
+        // the good listener sits later in the same emission's snapshot order.
+        let panicking = sink.subscribe(|_| panic!("listener boom"));
+        let (store, listener) = collector();
+        sink.subscribe(listener).forget();
+
+        // `emit` isolates each listener via `catch_unwind`: the panic is
+        // swallowed (never propagates out of `emit`) AND the listener that
+        // follows the panicking one still fires in the SAME emission.
         let caught = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
             sink.emit(&NetworkFailure::new("x"));
         }));
-        assert!(caught.is_err(), "the listener panic propagates out of emit");
+        assert!(
+            caught.is_ok(),
+            "a panicking listener must not propagate out of emit"
+        );
+        assert_eq!(
+            store.lock().unwrap().len(),
+            1,
+            "a listener after a panicking one still fires in the same emit"
+        );
 
         // Unsubscribing the panicking listener still works (would panic on a
         // PoisonError if the mutex had been poisoned).
         drop(panicking);
 
-        // And a fresh subscribe + emit still fires — the sink is fully usable.
-        let (store, listener) = collector();
-        sink.subscribe(listener).forget();
+        // And a further emit still delivers — the sink remains fully usable.
         sink.emit(&NetworkFailure::new("y"));
         assert_eq!(
             store.lock().unwrap().len(),
-            1,
+            2,
             "sink still delivers after a listener panicked"
         );
     }

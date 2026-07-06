@@ -167,8 +167,8 @@ mod tests {
         }
     }
 
-    #[cfg_attr(not(target_arch = "wasm32"), async_trait::async_trait)]
-    #[cfg_attr(target_arch = "wasm32", async_trait::async_trait(?Send))]
+    #[cfg_attr(not(target_arch = "wasm32"), clean_signals::async_trait)]
+    #[cfg_attr(target_arch = "wasm32", clean_signals::async_trait(?Send))]
     impl TeamRepository for FlakyRepo {
         async fn list_members(&self) -> Result<Vec<Member>, TeamFailure> {
             let attempt = self.attempts.fetch_add(1, Ordering::SeqCst) + 1;

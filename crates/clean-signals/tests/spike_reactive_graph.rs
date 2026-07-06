@@ -285,9 +285,11 @@ async fn q7_cross_thread_sync_signal_ok_local_signal_panics() {
     // panic *inside* the spawned thread via catch_unwind so it never unwinds
     // across the arena boundary into the test harness.
     let local = RwSignal::new_local(7i32);
-    let cross = thread::spawn(move || panicked(move || {
-        let _ = local.get_untracked();
-    }));
+    let cross = thread::spawn(move || {
+        panicked(move || {
+            let _ = local.get_untracked();
+        })
+    });
     assert!(
         cross.join().unwrap(),
         "LocalStorage (new_local) signal panics when read from another thread"

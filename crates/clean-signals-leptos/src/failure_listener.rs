@@ -47,8 +47,8 @@ where
 mod tests {
     use super::*;
     use clean_signals::failure::fixtures::NetworkFailure;
-    use std::sync::atomic::{AtomicU32, Ordering};
     use std::sync::Arc;
+    use std::sync::atomic::{AtomicU32, Ordering};
 
     #[test]
     fn listener_fires_while_mounted_and_stops_after_cleanup() {
@@ -64,7 +64,11 @@ mod tests {
         });
 
         sink.emit(&NetworkFailure::new("boom"));
-        assert_eq!(hits.load(Ordering::SeqCst), 1, "listener fires while mounted");
+        assert_eq!(
+            hits.load(Ordering::SeqCst),
+            1,
+            "listener fires while mounted"
+        );
 
         owner.cleanup();
 

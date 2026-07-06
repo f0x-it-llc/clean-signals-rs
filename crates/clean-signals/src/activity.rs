@@ -3,11 +3,10 @@
 //!
 //! Overlapping operations are counted, so [`ActivityTracker::is_loading`]
 //! stays `true` until the *last* in-flight operation completes — no flicker
-//! when one operation ends while another is still running. This mirrors the
-//! Dart `clean_signals` `ActivityTracker`, but the Rust port trades the
-//! closure-based `track<T>(...)` API for an RAII guard
-//! ([`ActivityTracker::begin`]) so callers can hold the guard across
-//! arbitrary await points without a wrapping closure.
+//! when one operation ends while another is still running. Callers mark an
+//! operation as in flight by holding an RAII guard
+//! ([`ActivityTracker::begin`]) across its await points, rather than wrapping
+//! the work in a closure.
 //!
 //! # Post-dispose safety
 //!
@@ -20,8 +19,8 @@
 //! separately-disposed signal (via an owning `Owner::cleanup()`) is also a
 //! silent no-op rather than a panic — see SPIKE_NOTES Q1/Q8.
 
-use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
 
 use reactive_graph::computed::Memo;
 use reactive_graph::signal::RwSignal;

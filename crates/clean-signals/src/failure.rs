@@ -93,8 +93,8 @@ pub mod fixtures {
 
 #[cfg(test)]
 mod tests {
-    use super::fixtures::{NetworkFailure, ValidationFailure};
     use super::Failure;
+    use super::fixtures::{NetworkFailure, ValidationFailure};
     use std::fmt;
 
     #[test]

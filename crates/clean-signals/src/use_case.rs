@@ -1,27 +1,22 @@
 //! `UseCase` and `StreamUseCase` — the single-call and streaming execution
 //! contracts every app-specific use case implements.
 //!
-//! # Rust delta from the Dart port
+//! # Failures as values, not exceptions
 //!
-//! Dart's `UseCase.call()` wraps a thrown `Failure` (or an arbitrary thrown
-//! object, boxed as `UnexpectedFailure`) into a `Result`, because Dart
-//! exceptions are the only way an implementation can signal failure. Rust has
-//! no such escape hatch: `execute` already returns `Result<Output, Failure>`
-//! directly, so there is no `call()` wrapper to port and no
-//! `UnexpectedFailure` type (see `PLAN.md` design decision #2 — apps map
-//! transport errors to their own `Failure` enum at the repository boundary,
-//! and a use case that can't produce a value returns `Err` like any other
-//! fallible Rust function).
+//! `execute` returns `Result<Output, Failure>` directly — there is no
+//! exception-catching wrapper, because Rust has no exceptions. A use case that
+//! can't produce a value returns `Err` like any other fallible Rust function,
+//! and apps map transport errors to their own `Failure` enum at the repository
+//! boundary (see `PLAN.md` design decision #2); there is deliberately no
+//! catch-all "unexpected failure" type.
 //!
-//! Likewise Dart's `StreamUseCase.call()` catches stream errors and emits a
-//! trailing `Failed<UnexpectedFailure>` event before cancelling the
-//! subscription. In Rust, [`StreamUseCase::execute`] already returns a stream
-//! whose items are `Result<Output, Failure>` — an implementation that can
-//! fail mid-stream simply yields an `Err` item itself (see the `Ticker`
-//! fixture below). There is no `guard_stream` helper to write: there are no
-//! exceptions to catch, and stream cancellation is Rust's ordinary `Drop`
-//! semantics — dropping (or no longer polling) a [`UseCaseStream`] halts it
-//! immediately, with no extra bookkeeping required.
+//! Streaming use cases follow the same rule: [`StreamUseCase::execute`] returns
+//! a stream whose items are individually `Result<Output, Failure>`, so an
+//! implementation that can fail mid-stream simply yields an `Err` item itself
+//! (see the `Ticker` fixture below). There is no guard/wrapper to write, and
+//! stream cancellation is Rust's ordinary `Drop` semantics — dropping (or no
+//! longer polling) a [`UseCaseStream`] halts it immediately, with no extra
+//! bookkeeping required.
 
 use crate::failure::Failure;
 
@@ -75,6 +70,17 @@ pub type UseCaseStream<T, F> = futures::stream::LocalBoxStream<'static, Result<T
 /// taking `&self` and returning an owned stream lets a controller's `watch`
 /// move the stream into a spawned task while the use case itself outlives
 /// the call.
+///
+/// # Contract: `execute` must be lazy
+///
+/// Implementations **must** return a stream that is *side-effect-free until
+/// polled*: constructing the stream (the body of `execute`) must not itself
+/// start any I/O, subscribe to anything, or otherwise cause observable effects
+/// — all work must happen only as the returned stream is driven. Controllers
+/// rely on this: `watch` may construct the stream and then immediately drop it
+/// without ever polling it (e.g. when the controller is already disposed), and
+/// that must be a no-op. An eager `execute` that fires effects on construction
+/// would leak work in exactly that case.
 pub trait StreamUseCase {
     /// Input the use case is invoked with.
     type Params;
@@ -89,17 +95,17 @@ pub trait StreamUseCase {
     fn execute(&self, params: Self::Params) -> UseCaseStream<Self::Output, Self::Failure>;
 }
 
-/// Shared test fakes mirroring the Dart `usecase_test.dart` / `controller_test.dart`
-/// helpers, reused by this crate's own tests and (via the `test-fixtures`
-/// feature) by the controller task's tests.
+/// Shared test fakes (fake use cases with deterministic, controllable
+/// behavior) reused by this crate's own tests and — via the `test-fixtures`
+/// feature — by the controller and leptos test suites.
 #[cfg(any(test, feature = "test-fixtures"))]
 pub mod fixtures {
     use super::{NoParams, StreamUseCase, UseCase, UseCaseStream};
-    use crate::failure::fixtures::NetworkFailure;
     use crate::failure::Failure;
+    use crate::failure::fixtures::NetworkFailure;
     use futures::stream::{self, StreamExt};
-    use std::sync::atomic::{AtomicU32, Ordering};
     use std::sync::Mutex;
+    use std::sync::atomic::{AtomicU32, Ordering};
 
     /// Doubles its `i32` input. Never fails.
     #[derive(Default, Clone, Copy, Debug)]
@@ -250,8 +256,8 @@ pub mod fixtures {
     }
 
     /// Stream fixture: yields `Ok(1)..=Ok(n)` then a trailing
-    /// `Err(NetworkFailure("tick lost"))` and terminates, mirroring Dart's
-    /// `TickerUseCase(params: int)`. `n` is supplied as the `execute` params.
+    /// `Err(NetworkFailure("tick lost"))` and terminates — a finite stream that
+    /// ends in a failure item. `n` is supplied as the `execute` params.
     #[derive(Default, Clone, Copy, Debug)]
     pub struct Ticker;
 
@@ -277,7 +283,7 @@ pub mod fixtures {
     }
 
     /// Stream fixture: yields `Ok(1)..=Ok(n)` then terminates cleanly (no
-    /// trailing failure), mirroring Dart's `CountingStream(params: int)`.
+    /// trailing failure) — a finite, all-success stream.
     #[derive(Default, Clone, Copy, Debug)]
     pub struct Counting;
 
@@ -307,8 +313,8 @@ mod tests {
     use super::*;
     use crate::failure::fixtures::NetworkFailure;
     use futures::stream::StreamExt;
-    use std::sync::atomic::{AtomicU32, Ordering};
     use std::sync::Arc;
+    use std::sync::atomic::{AtomicU32, Ordering};
 
     #[tokio::test]
     async fn doubler_executes() {
@@ -348,12 +354,7 @@ mod tests {
         let items: Vec<_> = uc.execute(3).collect().await;
         assert_eq!(
             items,
-            vec![
-                Ok(1),
-                Ok(2),
-                Ok(3),
-                Err(NetworkFailure::new("tick lost")),
-            ]
+            vec![Ok(1), Ok(2), Ok(3), Err(NetworkFailure::new("tick lost")),]
         );
     }
 
@@ -389,7 +390,11 @@ mod tests {
 
         assert_eq!(stream.next().await, Some(Ok(0)));
         assert_eq!(stream.next().await, Some(Ok(1)));
-        assert_eq!(counter.load(Ordering::SeqCst), 2, "polled exactly twice so far");
+        assert_eq!(
+            counter.load(Ordering::SeqCst),
+            2,
+            "polled exactly twice so far"
+        );
 
         drop(stream);
 

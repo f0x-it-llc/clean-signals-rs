@@ -5,10 +5,9 @@ edition.workspace = true
 license.workspace = true
 repository.workspace = true
 publish = false
-description = "clean-signals example app — team feature ported from the Dart clean_signals example (CSR)"
+description = "clean-signals example app — a small team-roster feature slice (CSR)"
 
 [dependencies]
-async-trait = { workspace = true }
 clean-signals = { workspace = true, features = ["test-fixtures"] }
 clean-signals-leptos = { workspace = true }
 leptos = { workspace = true, features = ["csr"] }

@@ -45,7 +45,9 @@ type RetryIf<F> = Arc<dyn Fn(&F) -> bool + Send + Sync>;
 /// ```
 pub struct RetryPolicy<F> {
     /// Total number of attempts, including the first one (not the retry
-    /// count).
+    /// count). [`Self::new`] clamps this to a minimum of `1`, so a policy built
+    /// with `max_attempts == 0` still runs exactly one attempt through the run
+    /// loop rather than zero.
     pub max_attempts: u32,
     /// Delay before the first retry.
     pub delay: Duration,
@@ -92,9 +94,12 @@ impl<F> RetryPolicy<F> {
     /// (including the first attempt), waiting `delay` before the first
     /// retry.
     ///
-    /// `backoff_factor` defaults to `2.0` (exponential backoff), matching
-    /// the upstream Dart `RetryPolicy`'s default. Use [`Self::with_backoff`]
-    /// to override it (e.g. `1.0` for a constant delay).
+    /// `backoff_factor` defaults to `2.0` (exponential backoff). Use
+    /// [`Self::with_backoff`] to override it (e.g. `1.0` for a constant delay).
+    ///
+    /// `max_attempts` is clamped to a minimum of `1`: `new(0, _)` yields a
+    /// single-attempt policy, never a zero-attempt one (see the
+    /// [`max_attempts`](Self::max_attempts) field).
     pub fn new(max_attempts: u32, delay: Duration) -> Self {
         Self {
             max_attempts: max_attempts.max(1),
@@ -153,6 +158,14 @@ mod tests {
     }
 
     #[test]
+    fn new_clamps_zero_max_attempts_to_one() {
+        // `new(0, _)` must never produce a zero-attempt policy: it clamps up to
+        // one attempt, so the run loop still executes the use case exactly once.
+        let policy = RetryPolicy::<NetworkFailure>::new(0, Duration::from_millis(10));
+        assert_eq!(policy.max_attempts, 1);
+    }
+
+    #[test]
     fn default_is_none() {
         let policy = RetryPolicy::<NetworkFailure>::default();
         assert_eq!(policy.max_attempts, 1);
@@ -160,8 +173,8 @@ mod tests {
 
     #[test]
     fn delay_for_exponential_progression() {
-        let policy = RetryPolicy::<NetworkFailure>::new(4, Duration::from_millis(100))
-            .with_backoff(2.0);
+        let policy =
+            RetryPolicy::<NetworkFailure>::new(4, Duration::from_millis(100)).with_backoff(2.0);
 
         assert_eq!(policy.delay_for(1), Duration::from_millis(100));
         assert_eq!(policy.delay_for(2), Duration::from_millis(200));
@@ -196,16 +209,16 @@ mod tests {
     #[test]
     fn custom_retry_if_overrides_is_retryable_to_allow() {
         // ValidationFailure.is_retryable() is false; custom predicate flips it to true.
-        let policy = RetryPolicy::<ValidationFailure>::new(3, Duration::from_millis(10))
-            .retry_if(|_f| true);
+        let policy =
+            RetryPolicy::<ValidationFailure>::new(3, Duration::from_millis(10)).retry_if(|_f| true);
         assert!(policy.should_retry(&ValidationFailure::new("bad input")));
     }
 
     #[test]
     fn custom_retry_if_overrides_is_retryable_to_deny() {
         // NetworkFailure.is_retryable() is true; custom predicate flips it to false.
-        let policy = RetryPolicy::<NetworkFailure>::new(3, Duration::from_millis(10))
-            .retry_if(|_f| false);
+        let policy =
+            RetryPolicy::<NetworkFailure>::new(3, Duration::from_millis(10)).retry_if(|_f| false);
         assert!(!policy.should_retry(&NetworkFailure::new("boom")));
     }
 

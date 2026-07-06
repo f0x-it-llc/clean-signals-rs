@@ -61,6 +61,16 @@ impl<F> ErrorSlot<F> {
 ///
 /// The whole view is reactive: it re-renders whenever `state` changes.
 ///
+/// # Clone cost
+///
+/// Each reactive re-render reads the signal with `state.get()`, which **clones**
+/// the whole `AsyncState<T, F>` — including the contained value `T` in the
+/// `Data`/`Reloading` cases. This is inherent to rendering owned children from a
+/// `Signal<AsyncState<T, F>>`: the value is handed to `children(value)` by
+/// value. For small `T` this is negligible, but a large `T` (e.g. a big `Vec`)
+/// is copied on every re-render — put such payloads behind an `Arc` (`Data<Arc<
+/// Big>>`) so each render clones only a pointer.
+///
 /// # Props
 ///
 /// - `state`: the controller's state signal (accepts `RwSignal`, `Memo`,

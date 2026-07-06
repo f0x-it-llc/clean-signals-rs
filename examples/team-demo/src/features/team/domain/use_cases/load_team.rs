@@ -27,8 +27,8 @@ impl LoadTeam {
     }
 }
 
-#[cfg_attr(not(target_arch = "wasm32"), async_trait::async_trait)]
-#[cfg_attr(target_arch = "wasm32", async_trait::async_trait(?Send))]
+#[cfg_attr(not(target_arch = "wasm32"), clean_signals::async_trait)]
+#[cfg_attr(target_arch = "wasm32", clean_signals::async_trait(?Send))]
 impl UseCase for LoadTeam {
     type Params = NoParams;
     type Output = Vec<Member>;
@@ -49,8 +49,8 @@ mod tests {
         fail: bool,
     }
 
-    #[cfg_attr(not(target_arch = "wasm32"), async_trait::async_trait)]
-    #[cfg_attr(target_arch = "wasm32", async_trait::async_trait(?Send))]
+    #[cfg_attr(not(target_arch = "wasm32"), clean_signals::async_trait)]
+    #[cfg_attr(target_arch = "wasm32", clean_signals::async_trait(?Send))]
     impl TeamRepository for FakeRepo {
         async fn list_members(&self) -> Result<Vec<Member>, TeamFailure> {
             if self.fail {

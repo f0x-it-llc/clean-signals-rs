@@ -83,8 +83,23 @@ pub mod use_case;
 
 // Flat public surface — the framework's vocabulary, re-exported at the crate
 // root so downstream code can `use clean_signals::{ControllerCore, Failure, ...}`.
+/// Re-export of the [`async_trait`] attribute macro, so downstream crates can
+/// implement [`UseCase`] without adding their own `async-trait` dependency.
+///
+/// Every async trait in this framework carries `Send` futures on native targets
+/// and `?Send` futures on `wasm32` (the browser event loop is single-threaded),
+/// so apply the macro through the same dual `cfg_attr` on both the trait and
+/// each `impl` block:
+///
+/// ```rust,ignore
+/// #[cfg_attr(not(target_arch = "wasm32"), clean_signals::async_trait)]
+/// #[cfg_attr(target_arch = "wasm32", clean_signals::async_trait(?Send))]
+/// impl UseCase for GetGreeting { /* ... */ }
+/// ```
+pub use async_trait::async_trait;
+
 pub use activity::{ActivityGuard, ActivityTracker};
-pub use async_state::{async_state_signal, to_reloading, AsyncState, ResultExt};
+pub use async_state::{AsyncState, ResultExt, async_state_signal, to_reloading};
 pub use controller::{ControllerCore, FailureSink, RunOptions, Subscription, WatchHandle};
 pub use failure::Failure;
 pub use retry::RetryPolicy;

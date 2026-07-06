@@ -24,8 +24,8 @@ impl InMemoryTeamRepo {
     }
 }
 
-#[cfg_attr(not(target_arch = "wasm32"), async_trait::async_trait)]
-#[cfg_attr(target_arch = "wasm32", async_trait::async_trait(?Send))]
+#[cfg_attr(not(target_arch = "wasm32"), clean_signals::async_trait)]
+#[cfg_attr(target_arch = "wasm32", clean_signals::async_trait(?Send))]
 impl TeamRepository for InMemoryTeamRepo {
     async fn list_members(&self) -> Result<Vec<Member>, TeamFailure> {
         let rows = self

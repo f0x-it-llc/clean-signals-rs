@@ -1,11 +1,10 @@
 //! `AsyncState<T, F>` — the state shape controllers store `run_into` results
 //! in, plus the `ResultExt::to_async_state()` bridge from `Result<T, F>`.
 //!
-//! Mirrors the Dart `signals` package's `AsyncState`/`toAsyncState()`, with
-//! one addition pinned by `research/dart-test-spec.md`: a [`AsyncState::Reloading`]
-//! variant that keeps the previous value visible while a refresh is in
-//! flight (`AsyncDataReloading` in the Dart test spec), so UI never flashes
-//! back to a bare loading state on refetch.
+//! A four-state enum — `Loading | Data | Reloading | Error`. The
+//! [`AsyncState::Reloading`] variant keeps the previous value visible while a
+//! refresh is in flight, so the UI never flashes back to a bare loading state
+//! on refetch.
 
 use reactive_graph::signal::RwSignal;
 
@@ -129,7 +128,7 @@ impl<T, F> ResultExt<T, F> for Result<T, F> {
 
 #[cfg(test)]
 mod tests {
-    use super::{async_state_signal, to_reloading, AsyncState, ResultExt};
+    use super::{AsyncState, ResultExt, async_state_signal, to_reloading};
     use reactive_graph::traits::GetUntracked;
 
     #[derive(Clone, Debug, PartialEq)]
@@ -179,11 +178,13 @@ mod tests {
         assert!(AsyncState::<i32, Fixture>::Loading.is_loading());
         assert!(AsyncState::<i32, Fixture>::Reloading(1).is_loading());
         assert!(!AsyncState::<i32, Fixture>::Data(1).is_loading());
-        assert!(!AsyncState::<i32, Fixture>::Error {
-            failure: Fixture("boom"),
-            stale: None,
-        }
-        .is_loading());
+        assert!(
+            !AsyncState::<i32, Fixture>::Error {
+                failure: Fixture("boom"),
+                stale: None,
+            }
+            .is_loading()
+        );
     }
 
     #[test]

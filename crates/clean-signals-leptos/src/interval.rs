@@ -30,8 +30,8 @@ use std::time::Duration;
 /// ```
 #[cfg(target_arch = "wasm32")]
 pub fn use_interval(period: Duration, f: impl Fn() + 'static) {
-    use std::sync::atomic::{AtomicBool, Ordering};
     use std::sync::Arc;
+    use std::sync::atomic::{AtomicBool, Ordering};
 
     // `Arc<AtomicBool>` (not `Rc<Cell>`): `on_cleanup` requires a `Send + Sync`
     // closure, so the shared alive-flag must be `Send + Sync` too.
