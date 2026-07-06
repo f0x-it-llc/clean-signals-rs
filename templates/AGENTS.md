@@ -70,6 +70,11 @@ src/features/<feature>/
 - Input validation lives in the use case and returns
   `Err(F::from(ValidationFailure))` — not in the controller, not in the view.
 - Use `NoParams` for parameterless use cases.
+- Async use cases apply the dual `#[cfg_attr(not(target_arch = "wasm32"),
+  clean_signals::async_trait)]` / `#[cfg_attr(target_arch = "wasm32",
+  clean_signals::async_trait(?Send))]` attribute pair to both the trait and
+  every impl — never add a direct `async-trait` dependency. See
+  `docs/CODE_STANDARDS.md` for why.
 
 ## Data rules
 
@@ -100,11 +105,13 @@ src/features/<feature>/
   .. }`. Never hand-roll a retry loop.
 - Register every owned cleanup with `core.on_dispose(...)`; `watch` handles
   auto-cancel on `core.dispose()`.
-- Controllers never import `leptos::prelude::*` render types (`view!`,
-  `IntoView`) and never touch DOM/browser APIs — that belongs to
-  `presentation::pages`/`components`. A controller may depend on
-  `reactive_graph` signal types and on `clean-signals-leptos` hooks that
-  construct/dispose it, nothing render-specific.
+- Controllers import signal types via **named** imports — `use
+  reactive_graph::signal::RwSignal` or `use leptos::prelude::RwSignal`,
+  whichever the crate already depends on — never a wildcard `use
+  leptos::prelude::*`. Never import render/DOM items (`view!`, `IntoView`,
+  components) — that belongs to `presentation::pages`/`components`. A
+  controller may also depend on `clean-signals-leptos` hooks that
+  construct/dispose it.
 
 ## DI conventions
 

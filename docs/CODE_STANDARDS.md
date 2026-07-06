@@ -55,11 +55,13 @@ it deterministically instead (see Testing Patterns).
 
 Every async trait in this codebase (`UseCase` and any trait with async
 methods) uses the same dual attribute, because `wasm32`'s single-threaded
-event loop can't require `Send` futures:
+event loop can't require `Send` futures. Use the `clean_signals::async_trait`
+re-export rather than a direct `async-trait` dependency, so downstream crates
+never need to pin their own:
 
 ```rust
-#[cfg_attr(not(target_arch = "wasm32"), async_trait::async_trait)]
-#[cfg_attr(target_arch = "wasm32", async_trait::async_trait(?Send))]
+#[cfg_attr(not(target_arch = "wasm32"), clean_signals::async_trait)]
+#[cfg_attr(target_arch = "wasm32", clean_signals::async_trait(?Send))]
 pub trait UseCase { /* ... */ }
 ```
 
@@ -73,7 +75,7 @@ also check wasm.
 |---------|-----------|---------|
 | Use case struct | `<Verb><Object>`, one per file downstream | `GetMembers`, `UpdateMemberName` |
 | Controller struct | `<Screen>Controller`, embeds `ControllerCore<F>` as a field | `MembersController` |
-| Multi-value params | Dart-record-equivalent: a small named struct, not a tuple | `struct UpdateNameParams { id: String, name: String }` |
+| Multi-value params | A small named struct, not a tuple | `struct UpdateNameParams { id: String, name: String }` |
 | Parameterless use case | `NoParams` | `uc.execute(NoParams)` |
 | Fixture types | `test-fixtures` feature, under a `fixtures` submodule | `crate::failure::fixtures::NetworkFailure` |
 

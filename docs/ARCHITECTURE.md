@@ -2,11 +2,11 @@
 
 ## Overview
 
-`clean-signals-rs` is a Rust port of the Dart `clean_signals` framework,
-targeting Leptos 0.8 apps. It gives use cases that return `Result`, and
-presentation-layer controllers that orchestrate them with ref-counted
-loading, per-call retry, and failures-as-events — built on Leptos's own
-reactive primitives (`reactive_graph`), not a bespoke signals library.
+`clean-signals-rs` is a clean-architecture framework for Leptos 0.8 apps. It
+gives use cases that return `Result`, and presentation-layer controllers that
+orchestrate them with ref-counted loading, per-call retry, and
+failures-as-events — built on Leptos's own reactive primitives
+(`reactive_graph`), not a bespoke signals library.
 
 ## Workspace / Crate Structure
 
@@ -14,7 +14,7 @@ reactive primitives (`reactive_graph`), not a bespoke signals library.
 |-------|---------------|
 | `crates/clean-signals` | Core framework: `Failure`, `UseCase`/`StreamUseCase`, `RetryPolicy`, `time::sleep`, `ActivityTracker`, `AsyncState`, `ControllerCore`. Reactivity-aware but DOM-free — depends only on `reactive_graph`, `any_spawner`, `async-trait`, `futures`. Never imports leptos. |
 | `crates/clean-signals-leptos` | Leptos 0.8 integration: component-scoped controller lifecycle (`use_controller`), `AsyncView`, failure listening, an interval helper. The only crate permitted to depend on `leptos`. |
-| `examples/team-demo` | CSR Leptos app exercising both crates end to end (team feature ported from the Dart example). |
+| `examples/team-demo` | CSR Leptos app exercising both crates end to end: a small team-roster feature slice. |
 
 ## Layer Dependencies
 
@@ -82,25 +82,28 @@ crate is portable to the browser target without pulling in DOM APIs.
    `try_update` so any write racing a teardown (an in-flight `.await`
    completing after `dispose()`) becomes a silent no-op instead of a panic.
 
-## Design Deltas vs. the Dart Original
+## Design Rationale
 
-- **No `UnexpectedFailure` port.** Rust's `execute` returns `Result` directly
-  (no thrown exception to catch), so there is no exception-wrapping step and
-  no catch-all failure type — apps map every error to their own `Failure`
-  enum at the repository boundary.
-- **No `Controller` base class.** Rust has no implementation inheritance
-  fitting this shape; app controllers *embed* a `ControllerCore<F>` field
-  (composition) instead of extending a base class.
-- **`std::result::Result` everywhere**, not a custom `Result`/`Success`/
-  `Failed` union; `ResultExt::to_async_state()` bridges a `Result` into
+- **App-defined failure types, not a shared catch-all.** Every framework type
+  is generic over `F: Failure` rather than one built-in error type, so apps
+  get a single closed, exhaustively-matchable `Failure` enum instead of
+  falling back to string-matching an "unexpected failure" variant.
+- **`std::result::Result` everywhere.** No custom result/success/failure
+  union type; `ResultExt::to_async_state()` bridges a `Result` straight into
   `AsyncState`.
-- **No `Effect` in core.** `reactive_graph::Effect` requires the `effects`
-  feature plus a `LocalSet`-driven executor; core uses `Memo` and explicit
-  methods so controllers stay testable without that feature. Render-glue
-  (`auto_effect`-style helpers) lives in `clean-signals-leptos` instead.
-- **`spawn_local` via `any_spawner::Executor`** drives `watch`, mirroring
-  Dart's stream subscription — see `research/SPIKE_NOTES.md` for the exact
-  runtime recipe this depends on.
+- **Composition, not inheritance, for controllers.** App controllers *embed*
+  a `ControllerCore<F>` field; Rust has no base-class mechanism for this
+  shape.
+- **`Memo`-based core, `Effect` kept out.** `reactive_graph::Effect` requires
+  the `effects` feature plus a `LocalSet`-driven executor; core uses `Memo`
+  and explicit methods so controllers stay testable without that feature.
+  Effect-style render glue lives in `clean-signals-leptos` instead.
+- **Failure fan-out without a channel dependency.** `FailureSink` (see Core
+  Abstractions) is a plain callback registry, not a broadcast channel —
+  keeps the core crate free of an async-channel dependency.
+- **Cancellation is drop-based, not token-based.** `watch`'s abort happens
+  when its `WatchHandle` (or the owning `ControllerCore`) is dropped — no
+  separate cancellation-token type to thread through call sites.
 
 ## Key Types
 

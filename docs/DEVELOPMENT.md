@@ -93,8 +93,7 @@ before suspecting a logic bug.
 
 `any_spawner::Executor::spawn_local` (what `ControllerCore::watch` uses)
 panics if called outside a `tokio::task::LocalSet` on a current-thread
-runtime. The exact recipe (from `research/SPIKE_NOTES.md` Q5), copy verbatim
-for any test exercising `watch`:
+runtime. Copy this recipe verbatim for any test exercising `watch`:
 
 ```rust
 #[tokio::test(flavor = "current_thread")]
