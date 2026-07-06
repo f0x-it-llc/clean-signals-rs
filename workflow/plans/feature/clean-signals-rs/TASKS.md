@@ -75,6 +75,7 @@ See PLAN.md Success Criteria. Verify commands (until docs/DEVELOPMENT.md exists)
 - WORKING_BRANCH: `master`
 - Plan approval: delegated to conductor by user; approved 2026-07-06.
 - Cupline retrofit: DEFERRED by user — no cupline writes in this pipeline.
+- Push policy: push origin master after every merged wave (user: "push as you go", 2026-07-06).
 
 ## Phase Review
 
