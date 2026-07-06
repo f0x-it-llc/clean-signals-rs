@@ -81,6 +81,7 @@ See PLAN.md Success Criteria. Verify commands (until docs/DEVELOPMENT.md exists)
 
 | Round | Verdict | Review | Reviewed HEAD |
 |-------|---------|--------|---------------|
+| 0 | ⚠️ NEEDS_WORK | workflow/reviews/clean-signals-rs/REVIEW.md | f143e2b |
 
 ## Wave Log
 
