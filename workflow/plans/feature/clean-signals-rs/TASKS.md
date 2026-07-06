@@ -82,6 +82,7 @@ See PLAN.md Success Criteria. Verify commands (until docs/DEVELOPMENT.md exists)
 | Round | Verdict | Review | Reviewed HEAD |
 |-------|---------|--------|---------------|
 | 0 | ⚠️ NEEDS_WORK | workflow/reviews/clean-signals-rs/REVIEW.md | f143e2b |
+| 1 | ✅ APPROVED_WITH_CONCERNS | workflow/reviews/clean-signals-rs/REVIEW.md (round 1 addendum) | fe076be |
 
 ## Wave Log
 
@@ -90,3 +91,16 @@ See PLAN.md Success Criteria. Verify commands (until docs/DEVELOPMENT.md exists)
 - Wave 3 (06): sequential main-loop implementor (opus). Validator PASS (19 controller tests; deviations documented: Params: Clone, on_dispose-after-dispose immediate, no emit_failures arg, no Effect in core).
 - Wave 4 (07,08): PASS+PASS, integration PASS (74 tests, both crates wasm-clean). Post-merge: doc_maintainer patched AGENTS.md (+1 line, Arc for provide_controller); conductor fixed pre-existing rustdoc link in async_state.rs (from wave 2).
 - Wave 5 (09): blocked once on missing async-trait dep in team-demo (Wave-0 gap; conductor fixed, d7d5615), then Done. Validator PASS (20 tests; layout = AGENTS.md reference). Friction findings carried to review: async-trait re-export gap; reactive_graph-via-leptos-prelude wording in AGENTS.md; view! angle-bracket parsing in closure types.
+- Fix round 1 (fix-01/02/03): all PASS; integration PASS (103 tests, 3x flake check clean). Re-review round 1: APPROVED_WITH_CONCERNS — all five F1-F5 verified resolved; zero confirmed Critical/Major.
+
+## Deferred Items (from round-1 concerns + round-0 minors — terminal verdict, no further rounds)
+
+- Correct RemoveOnDrop rustdoc: Abortable does NOT drop the wrapped future in place on abort; pruning-on-abort actually comes from cancel()/dispose()'s explicit retain/drain (doc-accuracy only).
+- `lock_recovering` helper to de-duplicate the 7 `.lock().unwrap_or_else(into_inner)` sites; also dedupe WatchHandle::cancel vs RemoveOnDrop retain logic.
+- Make "StreamUseCase::execute must return a lazy side-effect-free stream" an explicit trait contract (or check is_disposed before execute in watch's disposed path).
+- Track residual run/run_into failure-emission TOCTOU for cross-thread app-scoped controllers as a documented narrow limitation (try_* covers signal writes only).
+- SlowTicker test fixture: single-slot thread-local gate is fragile; unbounded tail after item 2 — tighten if it gains more call sites.
+- Consider per-listener catch_unwind in FailureSink::emit (defense-in-depth) + document wasm caveat.
+- Consider loom/stress test for the dispose/watch protocol in a future hardening pass.
+- Round-0 minors (unchanged): async_trait re-export from core; AGENTS.md reactive_graph wording; use_load_once helper; cargo fmt sweep; AsyncView clone-per-read; RetryPolicy::new(0,_) clamp test; raw transport text in example user message.
+- Completion-summary wording nits: fix-01 Abortable claim; fix-03 interval.rs analogy.

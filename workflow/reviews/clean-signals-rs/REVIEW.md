@@ -23,3 +23,11 @@ Full list: [findings-minor.md](findings-minor.md). Themes: AGENTS.md wording vs 
 ## Ledger
 
 Recorded in TASKS.md § Phase Review as Round 0 → NEEDS_WORK. Followup round 1 targets F1–F5 via followup-investigate → fix tasks.
+
+---
+
+# Round 1 addendum (re-review, convergence mode)
+
+**Verdict:** ✅ APPROVED_WITH_CONCERNS · **Reviewed HEAD:** fe076be · **Confirmed Critical/Major:** 0
+
+All five round-0 findings independently verified RESOLVED (F1 deterministic tests incl. grep + rerun; F2 lock-free snapshot emit + poison recovery + new test; F3 id-keyed self-pruning registry + 3 new tests; F4 try_get_value gates at both sites; F5 single-lock dispose/watch protocol + inert-handle test). Layering and API-stability spot-checks clean. Concerns copied to TASKS.md § Deferred Items — mostly doc-accuracy corrections, small refactors, and hardening suggestions; none block approval.
