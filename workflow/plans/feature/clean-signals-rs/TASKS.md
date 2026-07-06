@@ -23,9 +23,9 @@ Wave 5: 09-example-app          10-cupline-retrofit                (depend on 07
 |---|------|--------|------------|------------|---------|
 | 1 | [01-spike-reactive-graph](tasks/01-spike-reactive-graph.md) | ✅ Done | high | - | `crates/clean-signals/tests/spike_reactive_graph.rs`, `research/SPIKE_NOTES.md` |
 | 2 | [02-failure-trait](tasks/02-failure-trait.md) | ✅ Done | medium | - | `crates/clean-signals/src/failure.rs` |
-| 3 | [03-use-case](tasks/03-use-case.md) | Not Started | medium | 02 | `crates/clean-signals/src/use_case.rs` |
-| 4 | [04-retry-time](tasks/04-retry-time.md) | Not Started | medium | 02 | `crates/clean-signals/src/retry.rs`, `src/time.rs` |
-| 5 | [05-activity-async-state](tasks/05-activity-async-state.md) | Not Started | medium | 02 (reads 01 notes) | `crates/clean-signals/src/activity.rs`, `src/async_state.rs` |
+| 3 | [03-use-case](tasks/03-use-case.md) | ✅ Done | medium | 02 | `crates/clean-signals/src/use_case.rs` |
+| 4 | [04-retry-time](tasks/04-retry-time.md) | ✅ Done | medium | 02 | `crates/clean-signals/src/retry.rs`, `src/time.rs` |
+| 5 | [05-activity-async-state](tasks/05-activity-async-state.md) | ✅ Done | medium | 02 (reads 01 notes) | `crates/clean-signals/src/activity.rs`, `src/async_state.rs` |
 | 6 | [06-controller](tasks/06-controller.md) | Not Started | high | 01,02,03,04,05 | `crates/clean-signals/src/controller.rs`, `src/lib.rs` |
 | 7 | [07-leptos-integration](tasks/07-leptos-integration.md) | Not Started | high | 06 | `crates/clean-signals-leptos/src/*` |
 | 8 | [08-docs-and-agents-template](tasks/08-docs-and-agents-template.md) | Not Started | medium (Agent: doc_maintainer) | 06 | `docs/*.md`, `templates/AGENTS.md` |
@@ -80,3 +80,8 @@ See PLAN.md Success Criteria. Verify commands (until docs/DEVELOPMENT.md exists)
 
 | Round | Verdict | Review | Reviewed HEAD |
 |-------|---------|--------|---------------|
+
+## Wave Log
+
+- Wave 1 (01,02): PASS+PASS, integration PASS (15 tests).
+- Wave 2 (03,04,05): validator verdicts FAIL/CONCERN/CONCERN — the FAIL and scope-violation concerns were evidence-invalidated (worktrees forked pre-3548370; merge-base diffs prove each branch touched only its scoped files). Conductor override → merged. Real notes kept: 04 `backoff_factor` default = 2.0 matching Dart source (task text said 1.0 but instructed matching Dart; Dart wins); 05 summary test-count typo (10 not 12) — cosmetic. Integration PASS (48 tests).

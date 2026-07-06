@@ -40,3 +40,38 @@
 ### Notes
 
 - No global/shared retry state — the policy is a value, cloned per call.
+
+---
+
+## Completion Summary
+
+**Status:** Done
+**Branch:** worktree-wf_d366217c-c00-2
+
+### Files Modified
+
+| File | Changes |
+|------|---------|
+| `crates/clean-signals/src/retry.rs` | Implemented `RetryPolicy<F>`: `none()`, `new(max_attempts, delay)`, `with_backoff(factor)`, `retry_if(predicate)`, `delay_for(attempt)`, `should_retry(&F)`; manual `Clone` impl (no `F: Clone` bound) via a `RetryIf<F>` type alias for the `Arc<dyn Fn(&F) -> bool + Send + Sync>` field (also fixes a clippy `type_complexity` lint); `Default` = `none()`. Full test suite per task spec: exponential progression, constant-factor, `should_retry` default/override in both directions, `none()`/`Default`, attempt-0 guard, and a `Clone` smoke test. |
+| `crates/clean-signals/src/time.rs` | `pub async fn sleep(Duration)` cfg-gated: `tokio::time::sleep` (native) / `gloo_timers::future::sleep` (wasm32). Rustdoc marks it the only sanctioned sleep. Tokio smoke test asserting `Instant::elapsed() >= d`. |
+
+### Notable Decisions/Tradeoffs
+
+1. **`backoff_factor` default in `new()` set to `2.0`, not `1.0`**: the task text has an internal contradiction — it states `backoff_factor` defaults to `1.0` ("constant delay") but in the very next sentence instructs "Check the Dart source... for its default factor and match it." I read the actual Dart source at `/home/ed/Dev/personal/clean_signals/lib/src/retry.dart`: its `RetryPolicy` constructor defaults `backoffFactor: 2.0`. Per the explicit "match it" instruction (the more specific, verifiable directive) I used `2.0` as the default for `new()`, matching upstream Dart exactly. All tests set the factor explicitly via `with_backoff`, per the task's own caveat that "tests must set the factor explicitly either way" — so this choice does not affect any pinned test behavior. `none()`'s `delay`/`backoff_factor` fields are also set to Dart's literal defaults (300ms / 2.0) though irrelevant since `max_attempts = 1` means no retry ever occurs.
+2. **Manual `Clone` via type alias**: `#[derive(Clone)]` on a struct with a raw `Option<Arc<dyn Fn(&F) -> bool + Send + Sync>>` field would add a spurious `F: Clone` bound (a known derive-macro limitation) and additionally trips clippy's `type_complexity` lint. Introduced a private `type RetryIf<F> = Arc<dyn Fn(&F) -> bool + Send + Sync>;` alias, used in the field and hand-wrote `impl<F> Clone for RetryPolicy<F>` — satisfies acceptance criterion 3 exactly and keeps clippy `-D warnings` clean.
+3. **`should_retry` scoped to `impl<F: Failure>`**, the rest of the API (`none`, `new`, `with_backoff`, `retry_if`, `delay_for`) lives under an unconstrained `impl<F> RetryPolicy<F>` block since none of those need the `Failure` bound — slightly more precise than PLAN.md's single `impl<F: Failure> RetryPolicy<F>` block, but behaviorally identical since every real usage in this codebase carries `F: Failure`.
+4. **Doctest fixture**: the crate doc-example for `RetryPolicy` defines a small local `NetworkFailure` type implementing `Failure` inline rather than reaching for `clean_signals::failure::fixtures::NetworkFailure`, because that module is `#[cfg(any(test, feature = "test-fixtures"))]`-gated and isn't visible to an ordinary doctest compilation (which doesn't enable the `test-fixtures` feature by default).
+
+### Testing Performed
+
+- `cargo test -p clean-signals retry` - Passed (12 tests, includes all `failure` tests since name matches; 9 are retry-specific)
+- `cargo test -p clean-signals time` - Passed (sleep smoke test with `Instant` lower-bound assert)
+- `cargo test -p clean-signals` (full crate, incl. doctests) - Passed
+- `cargo test --workspace` - Passed
+- `cargo clippy -p clean-signals --all-targets -- -D warnings` - Passed (clean)
+- `cargo check -p clean-signals --target wasm32-unknown-unknown` - Passed (gloo path compiles)
+- `cargo build --workspace` - Passed
+
+### Risks/Limitations
+
+1. **Backoff-factor default divergence from task text**: see Notable Decision #1 above — flagging in case the plan author intended the literal `1.0` value despite the contradictory Dart-matching instruction. Low risk since no test depends on the default (all set the factor explicitly), and `RetryPolicy::none()` (the only zero-config path used elsewhere) is unaffected by `backoff_factor` since it never retries.
