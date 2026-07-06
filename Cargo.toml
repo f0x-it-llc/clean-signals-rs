@@ -4,6 +4,7 @@ members = [
     "crates/clean-signals",
     "crates/clean-signals-leptos",
     "examples/team-demo",
+    "examples/team-demo-ssr",
 ]
 
 [workspace.package]
@@ -19,6 +20,9 @@ clean-signals-leptos = { path = "crates/clean-signals-leptos" }
 reactive_graph = "0.2"
 any_spawner = "0.3"
 leptos = { version = "0.8", default-features = false }
+leptos_axum = "0.8"
+axum = "0.8"
+wasm-bindgen = "0.2"
 
 async-trait = "0.1"
 futures = "0.3"

@@ -1,0 +1,47 @@
+[package]
+name = "team-demo-ssr"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+publish = false
+description = "clean-signals example app — the team-roster feature slice as an SSR + hydrate Leptos app (axum, server-function repository transport)"
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[[bin]]
+name = "team-demo-ssr"
+path = "src/main.rs"
+required-features = ["ssr"]
+
+[features]
+default = []
+ssr = [
+    "leptos/ssr",
+    "dep:leptos_axum",
+    "dep:axum",
+    "dep:tokio",
+]
+hydrate = [
+    "leptos/hydrate",
+    "dep:console_error_panic_hook",
+    "dep:wasm-bindgen",
+]
+
+[dependencies]
+clean-signals = { workspace = true, features = ["test-fixtures"] }
+clean-signals-leptos = { workspace = true }
+leptos = { workspace = true }
+serde = { version = "1", features = ["derive"] }
+
+leptos_axum = { workspace = true, optional = true }
+axum = { workspace = true, optional = true }
+tokio = { workspace = true, optional = true, features = ["rt-multi-thread", "macros", "net"] }
+
+console_error_panic_hook = { workspace = true, optional = true }
+wasm-bindgen = { workspace = true, optional = true }
+
+[dev-dependencies]
+any_spawner = { workspace = true, features = ["tokio"] }
+tokio = { workspace = true, features = ["rt", "macros", "time", "sync"] }
