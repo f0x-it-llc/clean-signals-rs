@@ -187,6 +187,7 @@ pub mod fixtures {
     /// "slow" operation completes.
     pub struct Slow {
         gate: Mutex<Option<futures::channel::oneshot::Receiver<()>>>,
+        started: Mutex<Option<futures::channel::oneshot::Sender<()>>>,
     }
 
     impl Slow {
@@ -195,8 +196,35 @@ pub mod fixtures {
             (
                 Self {
                     gate: Mutex::new(Some(rx)),
+                    started: Mutex::new(None),
                 },
                 tx,
+            )
+        }
+
+        /// Like [`Slow::new`], but also returns a receiver that fires the
+        /// moment `execute` is entered, before it parks on the main gate — a
+        /// deterministic, race-free proxy for "the operation has started" in
+        /// tests that need to observe intermediate state (e.g.
+        /// `is_loading()`, a mid-reload `AsyncState`) without a wall-clock
+        /// sleep. `ControllerCore::run`/`run_into` flip activity/state to
+        /// `Loading`/`Reloading` synchronously *before* calling `execute`, so
+        /// awaiting this receiver is sufficient proof the visible state has
+        /// already changed.
+        pub fn with_started_signal() -> (
+            Self,
+            futures::channel::oneshot::Sender<()>,
+            futures::channel::oneshot::Receiver<()>,
+        ) {
+            let (tx, rx) = futures::channel::oneshot::channel();
+            let (started_tx, started_rx) = futures::channel::oneshot::channel();
+            (
+                Self {
+                    gate: Mutex::new(Some(rx)),
+                    started: Mutex::new(Some(started_tx)),
+                },
+                tx,
+                started_rx,
             )
         }
     }
@@ -209,6 +237,10 @@ pub mod fixtures {
         type Failure = NetworkFailure;
 
         async fn execute(&self, _params: NoParams) -> Result<i32, NetworkFailure> {
+            if let Some(started_tx) = self.started.lock().unwrap().take() {
+                // Best-effort: a dropped receiver (test doesn't care) is fine.
+                let _ = started_tx.send(());
+            }
             let rx = self.gate.lock().unwrap().take();
             if let Some(rx) = rx {
                 let _ = rx.await;

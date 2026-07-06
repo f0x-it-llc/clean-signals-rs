@@ -639,19 +639,49 @@ mod tests {
         }
     }
 
-    /// A stream that yields `Ok(1)` immediately then sleeps between subsequent
-    /// items — long enough that `dispose` can interrupt it mid-stream.
+    /// A stream that yields `Ok(1)` immediately, then parks on a
+    /// test-controlled gate before yielding item 2 — replacing a previous
+    /// internal `crate::time::sleep(50ms)` so `dispose` tests can prove a
+    /// driver task is aborted while genuinely parked mid-stream, with no
+    /// wall-clock wait involved. Each `execute()` call stashes a fresh gate
+    /// `Sender` in a thread-local slot, retrievable via
+    /// [`SlowTicker::take_gate`]; tests that never poll the stream past item
+    /// 1 (e.g. the registry/dispose-all tests) never touch it.
     struct SlowTicker;
+
+    thread_local! {
+        static SLOW_TICKER_GATE: RefCell<Option<futures::channel::oneshot::Sender<()>>> =
+            const { RefCell::new(None) };
+    }
+
+    impl SlowTicker {
+        /// Takes the gate `Sender` created by the most recent `execute()`
+        /// call on this thread, so a test can release it deterministically
+        /// instead of sleeping. Tests using this run single-threaded
+        /// (`flavor = "current_thread"` + `LocalSet`), so the thread-local is
+        /// race-free within one test body.
+        fn take_gate() -> futures::channel::oneshot::Sender<()> {
+            SLOW_TICKER_GATE
+                .with(|cell| cell.borrow_mut().take())
+                .expect("SlowTicker::execute must run before take_gate")
+        }
+    }
+
     impl StreamUseCase for SlowTicker {
         type Params = ();
         type Output = u32;
         type Failure = NetworkFailure;
         fn execute(&self, _p: ()) -> UseCaseStream<u32, NetworkFailure> {
-            stream::unfold(1u32, |n| async move {
+            let (tx, rx) = futures::channel::oneshot::channel();
+            SLOW_TICKER_GATE.with(|cell| *cell.borrow_mut() = Some(tx));
+            stream::unfold((1u32, Some(rx)), |(n, rx)| async move {
                 if n > 1 {
-                    crate::time::sleep(Duration::from_millis(50)).await;
+                    if let Some(rx) = rx {
+                        let _ = rx.await;
+                    }
+                    return Some((Ok(n), (n + 1, None)));
                 }
-                Some((Ok(n), n + 1))
+                Some((Ok(n), (n + 1, rx)))
             })
             .boxed()
         }
@@ -743,15 +773,17 @@ mod tests {
     #[tokio::test(flavor = "multi_thread")]
     async fn run_tracks_is_loading_across_the_operation() {
         let controller = Arc::new(ControllerCore::<NetworkFailure>::new());
-        let (slow, gate) = Slow::new();
+        let (slow, gate, started_rx) = Slow::with_started_signal();
         let slow = Arc::new(slow);
 
         let c = Arc::clone(&controller);
         let s = Arc::clone(&slow);
         let handle = tokio::spawn(async move { c.run(&*s, NoParams, RunOptions::default()).await });
 
-        // Give the spawned task time to begin (and park on the gate).
-        tokio::time::sleep(Duration::from_millis(30)).await;
+        // `run` flips activity to loading synchronously before calling
+        // `execute`, so observing 'started' is race-free proof the state has
+        // already changed — no wall-clock wait needed.
+        started_rx.await.unwrap();
         assert!(controller.is_loading().get_untracked(), "loading while gated");
 
         gate.send(()).unwrap();
@@ -766,7 +798,7 @@ mod tests {
     async fn run_into_drives_loading_to_data() {
         let controller = Arc::new(ControllerCore::<NetworkFailure>::new());
         let state = async_state_signal::<i32, NetworkFailure>();
-        let (slow, gate) = Slow::new();
+        let (slow, gate, started_rx) = Slow::with_started_signal();
         let slow = Arc::new(slow);
 
         let c = Arc::clone(&controller);
@@ -774,7 +806,9 @@ mod tests {
         let handle =
             tokio::spawn(async move { c.run_into(&*s, NoParams, state, RunOptions::default()).await });
 
-        tokio::time::sleep(Duration::from_millis(30)).await;
+        // `run_into` flips the signal to `Loading` synchronously before
+        // calling `execute`, so 'started' is race-free proof of the change.
+        started_rx.await.unwrap();
         assert_eq!(state.get_untracked(), AsyncState::Loading);
 
         gate.send(()).unwrap();
@@ -796,14 +830,16 @@ mod tests {
         assert_eq!(state.get_untracked(), AsyncState::Data(6));
 
         // Second load via a gated Slow use case: stale 6 stays visible.
-        let (slow, gate) = Slow::new();
+        let (slow, gate, started_rx) = Slow::with_started_signal();
         let slow = Arc::new(slow);
         let c = Arc::clone(&controller);
         let s = Arc::clone(&slow);
         let handle =
             tokio::spawn(async move { c.run_into(&*s, NoParams, state, RunOptions::default()).await });
 
-        tokio::time::sleep(Duration::from_millis(30)).await;
+        // `run_into` flips the signal to `Reloading` synchronously before
+        // calling `execute`, so 'started' is race-free proof of the change.
+        started_rx.await.unwrap();
         let mid = state.get_untracked();
         assert!(mid.is_loading(), "reloading");
         assert!(mid.has_value(), "stale data stays visible");
@@ -889,15 +925,19 @@ mod tests {
                 let values = Rc::new(RefCell::new(Vec::<u32>::new()));
                 let sink = Rc::clone(&values);
                 let _watch = controller.watch(&SlowTicker, (), move |v| sink.borrow_mut().push(v));
+                let gate = SlowTicker::take_gate();
 
-                // Deliver the first (immediate) item; the task then parks on sleep.
+                // Deliver the first (immediate) item; the driver then parks
+                // on the gate, genuinely mid-stream.
                 pump().await;
                 assert_eq!(*values.borrow(), vec![1]);
 
                 controller.dispose();
 
-                // Had the task not been aborted, item 2 would arrive after 50ms.
-                tokio::time::sleep(Duration::from_millis(90)).await;
+                // Release the gate: had the driver not been aborted, item 2
+                // would now be free to arrive. It must not, since dispose
+                // aborts the driver task immediately.
+                let _ = gate.send(());
                 pump().await;
                 assert_eq!(*values.borrow(), vec![1], "no on_data after dispose");
             })
