@@ -65,14 +65,26 @@ cargo build --workspace
 cargo test --workspace
 cargo clippy --workspace --all-targets -- -D warnings
 cargo check -p clean-signals --target wasm32-unknown-unknown
-(cd crates/clean-signals-forgekit && cargo test)                               # standalone pkg: needs ../forgekit sibling
-(cd crates/clean-signals-forgekit && cargo clippy --all-targets -- -D warnings) # standalone pkg: needs ../forgekit sibling
 ```
 
-The last two commands live outside `--workspace` by design: `clean-signals-forgekit`
-is excluded from the root workspace (see `docs/ARCHITECTURE.md`), so it must be
-built/tested/linted from its own directory, and only succeeds with the ForgeKit
-sibling checkout present.
+If the ForgeKit sibling checkout exists at `../forgekit`, additionally run:
+
+```sh
+(cd crates/clean-signals-forgekit && cargo test)
+(cd crates/clean-signals-forgekit && cargo clippy --all-targets -- -D warnings)
+```
+
+These two live outside `--workspace` by design: `clean-signals-forgekit` is
+excluded from the root workspace (see `docs/ARCHITECTURE.md`), so it must be
+built/tested/linted from its own directory, and it only succeeds with the
+sibling present.
+
+No sibling checkout? Do not run the two conditional commands — record
+"standalone forgekit gate not run — no sibling checkout" in your completion
+summary instead, and do not touch `crates/clean-signals-forgekit` without the
+sibling in place. There is no CI for this repo, so this doc is the only
+enforcement; if CI is ever introduced, whether it provisions the sibling must
+be decided explicitly.
 
 ## Run the example apps
 
