@@ -10,6 +10,10 @@
 //!   controller through ForgeKit's reactive context.
 //! - [`use_failure_listener`] — surface a controller's failures, scoped to the
 //!   component.
+//! - [`async_view`] — map a controller's [`AsyncState`](clean_signals::AsyncState)
+//!   snapshot to a view.
+//! - [`use_interval`] — run a callback on a timer for as long as a component
+//!   is mounted.
 //!
 //! [`clean-signals-leptos`]: https://github.com/f0x-it-llc/clean-signals-rs
 //!
@@ -74,8 +78,12 @@
 //! }
 //! ```
 
+pub mod async_view;
 pub mod failure_listener;
 pub mod hooks;
+pub mod interval;
 
+pub use async_view::async_view;
 pub use failure_listener::use_failure_listener;
 pub use hooks::{expect_controller, provide_controller, use_controller};
+pub use interval::use_interval;

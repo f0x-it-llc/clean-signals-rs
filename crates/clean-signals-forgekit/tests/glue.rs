@@ -18,7 +18,6 @@
 //! - `use_failure_listener`: the handler receives an emitted failure while
 //!   mounted, and stops receiving after the component is removed.
 
-use std::any::Any;
 use std::sync::atomic::{AtomicU32, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 
@@ -28,76 +27,18 @@ use clean_signals_forgekit::{
     expect_controller, provide_controller, use_controller, use_failure_listener,
 };
 use forgekit::{AnyView, Axis, Component, FlexView, any, component, keyed, text};
-use forgekit_core::{PaintScene, RenderRoot, View};
-use forgekit_reactive::{FrameWaker, ReactiveRuntime};
-use forgekit_scene::GlyphRun;
+use forgekit_core::RenderRoot;
 use forgekit_text::TextContext;
-use kurbo::{Point, Rect, Size};
-use peniko::Color;
-use reactive_graph::owner::Owner;
 
-const W: f64 = 800.0;
-const H: f64 = 600.0;
+mod support;
+use support::{frame, setup};
 
 // ---------------------------------------------------------------------------
-// Harness: a GPU-free paint target, a one-frame helper, and a recording waker —
-// the inbox recipe (ForgeKit `examples/inbox/tests/async.rs`), reduced to what
-// these lifecycle tests need (no async use case runs, so no `pump_local` loop).
+// Harness: shared with the other integration test files via `tests/support`
+// (see that module) — the inbox recipe (ForgeKit
+// `examples/inbox/tests/async.rs`). These lifecycle tests only need `frame`/
+// `setup` (no async use case runs, so no pump-poll loop here).
 // ---------------------------------------------------------------------------
-
-/// A GPU-free paint target that just counts glyph runs, so a test could observe
-/// painted content if it needed to (these tests assert on lifecycle, not pixels,
-/// but the frame still shapes real text through a `TextContext`).
-#[derive(Default)]
-struct RecScene {
-    glyph_runs: usize,
-}
-
-impl PaintScene for RecScene {
-    fn fill_rect(&mut self, _origin: Point, _size: Size, _color: Color) {}
-    fn fill_rounded_rect(&mut self, _origin: Point, _size: Size, _radius: f64, _color: Color) {}
-    fn draw_text(&mut self, _origin: Point, _text: &str) {}
-    fn draw_glyph_run(&mut self, _run: GlyphRun) {
-        self.glyph_runs += 1;
-    }
-    fn draw_image(&mut self, _data: &peniko::ImageData, _dest: Rect) {}
-}
-
-/// One frame: rebuild the tree from `state`, lay it out shaping real text, and
-/// record the paint output.
-fn frame<S: 'static, V: View<S>>(
-    root: &mut RenderRoot<S, V>,
-    logic: &mut impl FnMut(&mut S) -> V,
-    state: &mut S,
-    tcx: &mut TextContext,
-) -> RecScene {
-    root.rebuild(logic, state);
-    let tcx_any: &mut dyn Any = tcx;
-    root.layout_with_text(Size::new(W, H), tcx_any);
-    let mut scene = RecScene::default();
-    root.paint(&mut scene);
-    scene
-}
-
-/// A no-op-but-recording frame waker (see [`ReactiveRuntime::init`]). The global
-/// waker is swapped by whichever test inits last, so the count is not asserted
-/// on — installing a recording waker just exercises the real init path.
-fn recording_waker() -> FrameWaker {
-    let counter = Arc::new(AtomicUsize::new(0));
-    Arc::new(move || {
-        counter.fetch_add(1, Ordering::SeqCst);
-    })
-}
-
-/// Installs the reactive runtime and an ambient owner for a test, mirroring the
-/// desktop shell's startup. Returns the ambient owner (held for the test's
-/// duration so component owners stay valid children of it).
-fn setup() -> Owner {
-    let _runtime = ReactiveRuntime::init(recording_waker());
-    let ambient = Owner::new();
-    ambient.set();
-    ambient
-}
 
 // ---------------------------------------------------------------------------
 // A minimal test controller: embeds a `ControllerCore` by composition (the

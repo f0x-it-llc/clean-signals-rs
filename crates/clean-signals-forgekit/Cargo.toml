@@ -43,3 +43,9 @@ forgekit-text = { path = "../../../forgekit/crates/forgekit-text" }
 reactive_graph = "0.2"
 kurbo = "0.13.1"
 peniko = "0.6.1"
+# Dev-only, for interval.rs's lifted `run_interval` unit test (`#[tokio::test]`
+# — the loop's `clean_signals::time::sleep` needs a tokio runtime with the
+# time driver enabled). Not a lib dependency: the crate's own production code
+# never spawns a tokio runtime directly (see docs/CODE_STANDARDS.md's "No
+# sleeps outside time::sleep").
+tokio = { version = "1", default-features = false, features = ["rt", "macros", "time"] }
