@@ -11,6 +11,10 @@
   ```sh
   cargo install trunk
   ```
+- A [ForgeKit](https://github.com/f0x-it-llc/forgekit) checkout as a sibling
+  directory (`../forgekit` next to this repo) — required only to build/test
+  `crates/clean-signals-forgekit` (standalone package, see
+  `docs/ARCHITECTURE.md`); the root workspace never needs it.
 
 ## Build
 
@@ -61,7 +65,14 @@ cargo build --workspace
 cargo test --workspace
 cargo clippy --workspace --all-targets -- -D warnings
 cargo check -p clean-signals --target wasm32-unknown-unknown
+(cd crates/clean-signals-forgekit && cargo test)                               # standalone pkg: needs ../forgekit sibling
+(cd crates/clean-signals-forgekit && cargo clippy --all-targets -- -D warnings) # standalone pkg: needs ../forgekit sibling
 ```
+
+The last two commands live outside `--workspace` by design: `clean-signals-forgekit`
+is excluded from the root workspace (see `docs/ARCHITECTURE.md`), so it must be
+built/tested/linted from its own directory, and only succeeds with the ForgeKit
+sibling checkout present.
 
 ## Run the example apps
 
@@ -128,6 +139,15 @@ async fn my_watch_test() {
 `Executor::init_tokio()` is process-wide and first-writer-wins — always call
 it with `.ok()`, never assert it returns `Ok` (an earlier test in the same
 binary may have already set it).
+
+## ForgeKit glue tests
+
+`crates/clean-signals-forgekit`'s tests do **not** use the `LocalSet` +
+`Executor::tick()` recipe above — that recipe is for `any_spawner`, which this
+crate doesn't touch. Instead they use ForgeKit's own pump recipe: a
+process-wide `ReactiveRuntime::init`, an ambient `Owner`, and async work driven
+by `forgekit::spawn_local` + polling `pump_local()` under a deadline. See
+`crates/clean-signals-forgekit/tests/support/mod.rs` for the shared harness.
 
 ## Workflow locations
 

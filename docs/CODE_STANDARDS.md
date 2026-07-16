@@ -69,6 +69,17 @@ Apply the identical pair of attributes to every `impl` block for such a
 trait — a mismatch compiles on one target only, easy to miss if you don't
 also check wasm.
 
+## Ambient-Owner contract for `use_*` hooks (clean-signals-forgekit)
+
+Every `use_*` helper in `clean-signals-forgekit` that calls `on_cleanup`,
+`provide_context`, or `use_context` depends on a reactive `Owner` being
+ambient, which is only true inside `Component::init` (or another owner
+scope). Outside one, `on_cleanup` silently no-ops instead of erroring — a
+controller, subscription, or interval leaks with no panic to catch it. New
+hooks in this crate must state this contract explicitly in their own rustdoc
+(an `# Ambient-Owner contract` heading), not just rely on the crate-level doc
+comment — see `hooks.rs`/`interval.rs`/`failure_listener.rs` for the pattern.
+
 ## Naming conventions
 
 | Element | Convention | Example |

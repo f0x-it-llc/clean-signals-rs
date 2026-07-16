@@ -120,6 +120,50 @@ absorption, loading transitions, stale-data reloads, and failure routing all
 assert without a browser. See `docs/DEVELOPMENT.md` for the two-line
 tokio/`Owner` test recipe.
 
+## ForgeKit
+
+[`clean-signals-forgekit`](crates/clean-signals-forgekit) wires the same
+framework to [ForgeKit](https://github.com/f0x-it-llc/forgekit) instead of
+Leptos: `use_controller`, `provide_controller`/`expect_controller`,
+`use_failure_listener`, `async_view`, `use_interval`.
+
+```rust,ignore
+use clean_signals_forgekit::{use_controller, use_failure_listener, async_view};
+use forgekit::{AnyView, Component, any, text};
+use std::sync::Arc;
+
+impl Component for InboxScreen {
+    type State = Arc<InboxController>;
+
+    fn init(&self) -> Arc<InboxController> {
+        // An Owner is ambient here (Component::init), so disposal binds to
+        // this component's teardown.
+        let controller = use_controller::<InboxController, AppFailure>(InboxController::new);
+        use_failure_listener(controller.core().failures(), |f: AppFailure| {
+            log::error!("{}", f.user_message());
+        });
+        controller
+    }
+
+    fn build(&self, state: &mut Arc<InboxController>) -> AnyView<Arc<InboxController>> {
+        // ForgeKit re-runs the whole `build` on change (coarse-grained
+        // reactivity, unlike Leptos's fine-grained fragments), so `async_view`
+        // is a plain snapshot match over an already-tracked `.get()`.
+        async_view(
+            state.messages.get(),
+            || any(text("Loading…")),
+            |messages| any(text(format!("{} messages", messages.len()))),
+            |failure: AppFailure| any(text(failure.user_message())),
+        )
+    }
+}
+```
+
+`clean-signals-forgekit` is a **standalone package**, not a workspace member:
+it path-depends on an unpublished ForgeKit sibling checkout, so it only builds
+from a checkout with `../forgekit` next to `../clean-signals-rs`. See
+`docs/ARCHITECTURE.md` and `docs/DEVELOPMENT.md` for the gate commands.
+
 ## Examples
 
 Both examples implement the **same** team-roster feature slice — the diff

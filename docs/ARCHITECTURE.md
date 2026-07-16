@@ -2,18 +2,20 @@
 
 ## Overview
 
-`clean-signals-rs` is a clean-architecture framework for Leptos 0.8 apps. It
+`clean-signals-rs` is a clean-architecture framework for reactive Rust UIs. It
 gives use cases that return `Result`, and presentation-layer controllers that
 orchestrate them with ref-counted loading, per-call retry, and
-failures-as-events — built on Leptos's own reactive primitives
-(`reactive_graph`), not a bespoke signals library.
+failures-as-events — built directly on `reactive_graph`, not a bespoke signals
+library. `clean-signals-leptos` (Leptos 0.8) and `clean-signals-forgekit`
+(ForgeKit) are its two presentation-layer integrations.
 
 ## Workspace / Crate Structure
 
 | Crate | Responsibility |
 |-------|---------------|
-| `crates/clean-signals` | Core framework: `Failure`, `UseCase`/`StreamUseCase`, `RetryPolicy`, `time::sleep`, `ActivityTracker`, `AsyncState`, `ControllerCore`. Reactivity-aware but DOM-free — depends only on `reactive_graph`, `any_spawner`, `async-trait`, `futures`. Never imports leptos. |
-| `crates/clean-signals-leptos` | Leptos 0.8 integration: component-scoped controller lifecycle (`use_controller`), `AsyncView`, failure listening, an interval helper. The only crate permitted to depend on `leptos`. |
+| `crates/clean-signals` | Core framework: `Failure`, `UseCase`/`StreamUseCase`, `RetryPolicy`, `time::sleep`, `ActivityTracker`, `AsyncState`, `ControllerCore`. Reactivity-aware but DOM-free — depends only on `reactive_graph`, `any_spawner`, `async-trait`, `futures`. Never imports leptos or forgekit. |
+| `crates/clean-signals-leptos` | Leptos 0.8 integration: component-scoped controller lifecycle (`use_controller`), `AsyncView`, failure listening, an interval helper. The only crate permitted to depend on `leptos`. Workspace member. |
+| `crates/clean-signals-forgekit` | [ForgeKit](https://github.com/f0x-it-llc/forgekit) integration: `use_controller`/`provide_controller`/`expect_controller`, `use_failure_listener`, `async_view`, `use_interval` — the ForgeKit counterpart of `clean-signals-leptos`. Standalone package (own `[workspace]` table, excluded from this repo's root workspace) with a path dependency on the unpublished ForgeKit sibling checkout; the only crate permitted to depend on `forgekit`. See Design Rationale below and `docs/DEVELOPMENT.md`. |
 | `examples/team-demo` | CSR Leptos app exercising both crates end to end: a small team-roster feature slice. |
 | `examples/team-demo-ssr` | The same team-roster feature slice as an SSR + hydrate (axum) Leptos app — demonstrates the architecture is render-mode-agnostic; see "SSR Applications" below. |
 
@@ -30,6 +32,15 @@ Compile-time enforced: `clean-signals` has no `leptos` dependency in its
 `Cargo.toml`, so any accidental leptos import fails to build. `cargo check -p
 clean-signals --target wasm32-unknown-unknown` additionally proves the core
 crate is portable to the browser target without pulling in DOM APIs.
+
+`clean-signals-forgekit` is structurally parallel but lives outside this
+graph, in its own workspace root:
+
+```
+crates/clean-signals-forgekit   (standalone package; excluded above)
+      └── crates/clean-signals
+      └── ../forgekit            (sibling checkout, native-only, unpublished)
+```
 
 ## Core Abstractions
 
@@ -105,6 +116,13 @@ crate is portable to the browser target without pulling in DOM APIs.
 - **Cancellation is drop-based, not token-based.** `watch`'s abort happens
   when its `WatchHandle` (or the owning `ControllerCore`) is dropped — no
   separate cancellation-token type to thread through call sites.
+- **`clean-signals-forgekit` is a standalone package, not a workspace member.**
+  Its path dependency on the ForgeKit sibling checkout is native-only and
+  unpublished (no git remote yet); folding it into the root workspace would
+  drag that dependency into every workspace command, the shared lockfile, and
+  the `wasm32-unknown-unknown` gate that proves the core crate stays
+  DOM/leptos-free. Its own `[workspace]` table plus the root's `exclude` keep
+  it network-free and independently checkable — see `docs/DEVELOPMENT.md`.
 
 ## SSR Applications
 
