@@ -6,6 +6,11 @@ members = [
     "examples/team-demo",
     "examples/team-demo-ssr",
 ]
+# Standalone package with its own `[workspace]` table: its path dependency on
+# the native-only, remote-less ForgeKit sibling checkout must never enter this
+# workspace's graph, lockfile, or wasm definition-of-done gate. Excluded here as
+# belt-and-braces (the crate's own `[workspace]` table already detaches it).
+exclude = ["crates/clean-signals-forgekit"]
 
 [workspace.package]
 version = "0.1.0"
