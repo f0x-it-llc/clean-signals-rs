@@ -2,7 +2,7 @@
 //! the four [`AsyncState`] arms, plus the end-to-end proof that a component
 //! wiring [`use_controller`] + [`async_view`] through a real (retrying) async
 //! use case transitions Loading→Data across pumped frames — a port of
-//! ForgeKit's `examples/inbox` retry test, driven entirely through
+//! Frust's `examples/inbox` retry test, driven entirely through
 //! `clean-signals-forgekit`'s public API.
 //!
 //! There is no GPU window: [`support::frame`]/[`support::pump_until`] drive
@@ -17,9 +17,9 @@ use clean_signals::{
     AsyncState, ControllerCore, Failure, NoParams, RetryPolicy, RunOptions, async_state_signal,
 };
 use clean_signals_forgekit::{async_view, use_controller};
-use forgekit::{AnyView, Column, Component, RwSignal, any, component, text};
-use forgekit_core::RenderRoot;
-use forgekit_text::TextContext;
+use frust::{AnyView, Column, Component, RwSignal, any, component, text};
+use frust_core::RenderRoot;
+use frust_text::TextContext;
 use reactive_graph::traits::{Get, GetUntracked};
 
 mod support;
@@ -130,7 +130,7 @@ fn error_with_stale_drops_the_stale_value_in_this_v0_shape() {
 
 // ===========================================================================
 // 2. End-to-end retry test: a component wiring use_controller + async_view to
-//    a real, retrying UseCase — ported from ForgeKit's `examples/inbox`
+//    a real, retrying UseCase — ported from Frust's `examples/inbox`
 //    (`src/lib.rs`/`tests/async.rs`) THROUGH clean-signals-forgekit's public
 //    API rather than the example's own hand-rolled `use_controller`/
 //    `async_view`.
@@ -200,7 +200,7 @@ impl Component for RetryScreen {
         // Kick off the load on the UI-thread local task queue, exactly like
         // the inbox example's `Inbox::init`.
         let handle = Arc::clone(&controller);
-        forgekit::spawn_local(async move {
+        frust::spawn_local(async move {
             handle.load().await;
         });
 

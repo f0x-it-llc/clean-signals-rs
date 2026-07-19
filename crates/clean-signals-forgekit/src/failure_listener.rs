@@ -6,19 +6,19 @@
 //! [`Subscription`](clean_signals::Subscription) guard per component.
 
 use clean_signals::{Failure, FailureSink};
-use forgekit::on_cleanup;
+use frust::on_cleanup;
 
 /// Subscribes `handler` to `sink` for the lifetime of the current component.
 ///
 /// Each emitted failure is cloned and passed to `handler` (by value). The
 /// underlying [`Subscription`](clean_signals::Subscription) is moved into an
-/// [`on_cleanup`](forgekit::on_cleanup) callback, so it is dropped — and the
+/// [`on_cleanup`](frust::on_cleanup) callback, so it is dropped — and the
 /// listener removed — when the component unmounts.
 ///
 /// # Ambient-Owner contract
 ///
 /// Must be called where a reactive [`Owner`](reactive_graph::owner::Owner) is
-/// ambient — i.e. from [`Component::init`](forgekit::Component::init). Outside an
+/// ambient — i.e. from [`Component::init`](frust::Component::init). Outside an
 /// owner the cleanup no-ops, so the subscription would leak for the sink's
 /// lifetime rather than the component's.
 ///

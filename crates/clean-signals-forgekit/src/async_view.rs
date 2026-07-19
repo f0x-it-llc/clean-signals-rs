@@ -1,21 +1,21 @@
 //! [`async_view`] — a snapshot renderer for a controller's [`AsyncState`].
 //!
-//! This is the ForgeKit transliteration of `clean-signals-leptos`'s
-//! `<AsyncView>` component (lifted from ForgeKit's `examples/inbox`, which
+//! This is the Frust transliteration of `clean-signals-leptos`'s
+//! `<AsyncView>` component (lifted from Frust's `examples/inbox`, which
 //! prototyped it as extractable glue — see that crate's `src/lib.rs`).
 //! Leptos re-renders reactively, fragment by fragment, whenever its `state`
-//! signal changes; ForgeKit has no per-component fine-grained reactivity (see
+//! signal changes; Frust has no per-component fine-grained reactivity (see
 //! this crate's rustdoc, "Coarse-grained reactivity model"), so `async_view`
 //! is a plain match over an already-read `AsyncState` snapshot, not a
 //! reactive wrapper.
 //!
 //! Take the snapshot with a tracked `signal.get()` at the call site (inside
-//! [`Component::build`](forgekit::Component::build)) so the shell's
+//! [`Component::build`](frust::Component::build)) so the shell's
 //! frame-tracking scope re-renders when the controller later writes a new
 //! state.
 
 use clean_signals::{AsyncState, Failure};
-use forgekit::AnyView;
+use frust::AnyView;
 
 /// Maps a snapshot of an [`AsyncState`] to a view.
 ///
@@ -46,7 +46,7 @@ use forgekit::AnyView;
 /// # Type parameters
 ///
 /// - `S`: the outer component state the returned [`AnyView`] is generic
-///   over (mirrors every other ForgeKit view-producing helper).
+///   over (mirrors every other Frust view-producing helper).
 /// - `T`: the loaded value type.
 /// - `F`: the app's [`Failure`] type.
 ///

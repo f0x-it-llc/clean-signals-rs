@@ -16,9 +16,9 @@ use std::sync::atomic::{AtomicU32, Ordering};
 use std::time::Duration;
 
 use clean_signals_forgekit::use_interval;
-use forgekit::{Axis, Component, FlexView, any, component, keyed, text};
-use forgekit_core::{AnyView, RenderRoot};
-use forgekit_text::TextContext;
+use frust::{Axis, Component, FlexView, any, component, keyed, text};
+use frust_core::{AnyView, RenderRoot};
+use frust_text::TextContext;
 
 mod support;
 use support::{frame, pump_frames, pump_until, setup};

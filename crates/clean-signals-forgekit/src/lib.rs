@@ -1,13 +1,13 @@
-//! clean-signals-forgekit — the ForgeKit bridge for `clean-signals`.
+//! clean-signals-forgekit — the Frust bridge for `clean-signals`.
 //!
-//! This is the ForgeKit counterpart of [`clean-signals-leptos`]: the crate
+//! This is the Frust counterpart of [`clean-signals-leptos`]: the crate
 //! where the framework meets a rendering runtime, so the core [`clean_signals`]
-//! crate stays presentation-free. It supplies the helpers a ForgeKit
+//! crate stays presentation-free. It supplies the helpers a Frust
 //! presentation layer needs to drive controllers safely from components:
 //!
 //! - [`use_controller`] — build a controller once, dispose it on unmount.
 //! - [`provide_controller`] / [`expect_controller`] — share an app-scoped
-//!   controller through ForgeKit's reactive context.
+//!   controller through Frust's reactive context.
 //! - [`use_failure_listener`] — surface a controller's failures, scoped to the
 //!   component.
 //! - [`async_view`] — map a controller's [`AsyncState`](clean_signals::AsyncState)
@@ -22,20 +22,20 @@
 //! ## 1. Ambient-Owner requirement
 //!
 //! [`use_controller`] and [`use_failure_listener`] register an
-//! [`on_cleanup`](forgekit::on_cleanup) callback, and [`provide_controller`] /
+//! [`on_cleanup`](frust::on_cleanup) callback, and [`provide_controller`] /
 //! [`expect_controller`] read and write the reactive context. All four **only**
 //! work under an ambient reactive [`Owner`](reactive_graph::owner::Owner):
 //! outside one, `on_cleanup` silently no-ops (disposal never runs) and context
 //! reads/writes go nowhere. In practice this means **call these helpers from
-//! [`Component::init`](forgekit::Component::init)** (or another owner scope) —
-//! ForgeKit runs each component's `init` under that component's own reactive
+//! [`Component::init`](frust::Component::init)** (or another owner scope) —
+//! Frust runs each component's `init` under that component's own reactive
 //! owner, so cleanups bind to *that component's* teardown and context is scoped
-//! to its subtree. ForgeKit guarantees an ambient root owner on all entry paths.
+//! to its subtree. Frust guarantees an ambient root owner on all entry paths.
 //!
 //! ## 2. Coarse-grained reactivity model
 //!
 //! Unlike leptos, where a view is a fine-grained reactive closure that re-runs
-//! only the affected fragment, a ForgeKit [`Component`](forgekit::Component)
+//! only the affected fragment, a Frust [`Component`](frust::Component)
 //! re-runs its **entire** `build` whenever its tracked scope dirties. A
 //! controller therefore does not push individual DOM updates; it writes an
 //! `AsyncState` (or other signal), the shell re-renders the component's `build`,
@@ -47,13 +47,13 @@
 //!
 //! A controller (view model) embeds a
 //! [`ControllerCore`](clean_signals::ControllerCore) by composition and exposes
-//! its state signals; a component wires it up with the helpers below. ForgeKit's
+//! its state signals; a component wires it up with the helpers below. Frust's
 //! `examples/inbox` is the end-to-end reference wiring.
 //!
 //! ```rust,ignore
 //! use clean_signals::{ControllerCore, async_state_signal, AsyncState};
 //! use clean_signals_forgekit::{use_controller, use_failure_listener};
-//! use forgekit::{AnyView, Component, any, text};
+//! use frust::{AnyView, Component, any, text};
 //! use std::sync::Arc;
 //!
 //! impl Component for InboxScreen {

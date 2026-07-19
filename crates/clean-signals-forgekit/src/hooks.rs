@@ -13,23 +13,23 @@
 use std::sync::Arc;
 
 use clean_signals::{ControllerCore, Failure};
-use forgekit::{on_cleanup, provide_context, use_context};
+use frust::{on_cleanup, provide_context, use_context};
 
 /// Builds an app controller once and disposes it on component teardown.
 ///
 /// `factory` runs a single time (when the owning
-/// [`Component`](forgekit::Component) first builds, inside
-/// [`Component::init`](forgekit::Component::init)). The returned controller is
+/// [`Component`](frust::Component) first builds, inside
+/// [`Component::init`](frust::Component::init)). The returned controller is
 /// wrapped in an [`Arc`] so the render tree and any spawned tasks can share a
 /// cheap handle, and its embedded [`ControllerCore`] is
 /// [`dispose`](ControllerCore::dispose)d via
-/// [`on_cleanup`](forgekit::on_cleanup) when the component unmounts — aborting
+/// [`on_cleanup`](frust::on_cleanup) when the component unmounts — aborting
 /// in-flight watches, running registered teardowns, and releasing owned signals.
 ///
 /// The controller must expose its [`ControllerCore`] by `AsRef` (embed-by-
 /// composition, the clean-signals idiom) and be `Send + Sync` because
-/// [`on_cleanup`](forgekit::on_cleanup)'s callback is `Send + Sync` — an
-/// `Arc<C>` is captured, not an `Rc<C>`, since ForgeKit's reactive owner may run
+/// [`on_cleanup`](frust::on_cleanup)'s callback is `Send + Sync` — an
+/// `Arc<C>` is captured, not an `Rc<C>`, since Frust's reactive owner may run
 /// cleanups off the construction thread (unlike leptos's single-threaded browser
 /// owner, where this hook returns an `Rc`-backed `StoredValue`).
 ///
@@ -63,7 +63,7 @@ where
     controller
 }
 
-/// Provides an app-scoped controller through ForgeKit's reactive context.
+/// Provides an app-scoped controller through Frust's reactive context.
 ///
 /// Use this for controllers whose lifetime spans a large subtree rather than a
 /// single component. The provider is responsible for disposal; components that

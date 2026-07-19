@@ -1,7 +1,7 @@
 //! Shared headless-test harness for clean-signals-forgekit's integration
 //! tests: a GPU-free paint target, a one-frame helper, a recording waker, an
 //! ambient-owner setup, and an async pump-poll loop — the inbox recipe
-//! (`forgekit:examples/inbox/tests/async.rs`), factored so every `tests/*.rs`
+//! (`frust:examples/inbox/tests/async.rs`), factored so every `tests/*.rs`
 //! file (each its own crate root — see `mod support;` below) can share it
 //! without duplicating it. Not every test file uses every helper.
 #![allow(dead_code)]
@@ -11,10 +11,10 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::time::{Duration, Instant};
 
-use forgekit_core::{PaintScene, RenderRoot, View};
-use forgekit_reactive::{FrameWaker, ReactiveRuntime};
-use forgekit_scene::GlyphRun;
-use forgekit_text::TextContext;
+use frust_core::{PaintScene, RenderRoot, View};
+use frust_reactive::{FrameWaker, ReactiveRuntime};
+use frust_scene::GlyphRun;
+use frust_text::TextContext;
 use kurbo::{Point, Rect, Size};
 use peniko::Color;
 use reactive_graph::owner::Owner;
@@ -24,7 +24,7 @@ pub const H: f64 = 600.0;
 
 /// A GPU-free paint target that just counts glyph runs — enough to observe
 /// which arm of a rendered `AsyncState` painted (one row per `Text`/message)
-/// without any GPU or `forgekit-render` dependency.
+/// without any GPU or `frust-render` dependency.
 #[derive(Default)]
 pub struct RecScene {
     pub glyph_runs: usize,

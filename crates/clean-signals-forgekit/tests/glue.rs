@@ -1,5 +1,5 @@
 //! Headless integration tests for clean-signals-forgekit's controller hooks and
-//! failure listener, driven through real pumped ForgeKit frames.
+//! failure listener, driven through real pumped Frust frames.
 //!
 //! There is no GPU window: each test drives the framework's [`RenderRoot`]
 //! directly (the desktop shell's own rebuild/layout/paint seam) under an ambient
@@ -26,16 +26,16 @@ use clean_signals::{ControllerCore, FailureSink};
 use clean_signals_forgekit::{
     expect_controller, provide_controller, use_controller, use_failure_listener,
 };
-use forgekit::{AnyView, Axis, Component, FlexView, any, component, keyed, text};
-use forgekit_core::RenderRoot;
-use forgekit_text::TextContext;
+use frust::{AnyView, Axis, Component, FlexView, any, component, keyed, text};
+use frust_core::RenderRoot;
+use frust_text::TextContext;
 
 mod support;
 use support::{frame, setup};
 
 // ---------------------------------------------------------------------------
 // Harness: shared with the other integration test files via `tests/support`
-// (see that module) — the inbox recipe (ForgeKit
+// (see that module) — the inbox recipe (Frust
 // `examples/inbox/tests/async.rs`). These lifecycle tests only need `frame`/
 // `setup` (no async use case runs, so no pump-poll loop here).
 // ---------------------------------------------------------------------------
