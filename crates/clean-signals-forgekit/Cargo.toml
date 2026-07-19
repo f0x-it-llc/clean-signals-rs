@@ -22,11 +22,11 @@ publish = false
 clean-signals = { path = "../clean-signals" }
 # Frust has no git remote (local-only sibling checkout), so this must be a
 # relative path dep — which is exactly why this crate is workspace-independent
-# and excluded from the root. Requires the sibling checkout at `../forgekit`
-# (i.e. `<parent>/forgekit` next to `<parent>/clean-signals-rs`); swap this to a
+# and excluded from the root. Requires the sibling checkout at `../frust`
+# (i.e. `<parent>/frust` next to `<parent>/clean-signals-rs`); swap this to a
 # git+rev spec once Frust gains a remote, mirroring the clean-signals pin in
 # Frust's own `examples/inbox`.
-frust = { path = "../../../forgekit/crates/frust" }
+frust = { path = "../../../frust/crates/frust" }
 
 # Dev-only: the headless glue tests drive Frust's `RenderRoot` directly (the
 # desktop shell's own rebuild/layout/paint seam) and pump the reactive runtime's
@@ -36,10 +36,10 @@ frust = { path = "../../../forgekit/crates/frust" }
 # versions so the geometry/color types unify.
 [dev-dependencies]
 clean-signals = { path = "../clean-signals", features = ["test-fixtures"] }
-frust-core = { path = "../../../forgekit/crates/frust-core" }
-frust-reactive = { path = "../../../forgekit/crates/frust-reactive" }
-frust-scene = { path = "../../../forgekit/crates/frust-scene" }
-frust-text = { path = "../../../forgekit/crates/frust-text" }
+frust-core = { path = "../../../frust/crates/frust-core" }
+frust-reactive = { path = "../../../frust/crates/frust-reactive" }
+frust-scene = { path = "../../../frust/crates/frust-scene" }
+frust-text = { path = "../../../frust/crates/frust-text" }
 reactive_graph = "0.2"
 kurbo = "0.13.1"
 peniko = "0.6.1"
