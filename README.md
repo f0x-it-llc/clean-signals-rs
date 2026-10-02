@@ -150,8 +150,7 @@ core abstractions, design rationale, SSR applications),
 
 ## Status
 
-Early (0.1.x): APIs may still move, and the crates are not yet published to
-crates.io — use a git dependency. The test suite pins the behavioral contract
+Early (0.1.x): APIs may still move. The test suite pins the behavioral contract
 (100+ tests across the workspace), and `tests/spike_reactive_graph.rs` acts as
 a tripwire for upstream `reactive_graph` changes.
 

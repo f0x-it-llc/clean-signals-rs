@@ -12,10 +12,14 @@ version = "0.1.0"
 edition = "2024"
 license = "MIT"
 repository = "https://github.com/f0x-it-llc/clean-signals-rs"
+readme = "README.md"
 
 [workspace.dependencies]
-clean-signals = { path = "crates/clean-signals" }
-clean-signals-leptos = { path = "crates/clean-signals-leptos" }
+# `version` alongside `path`: local builds keep using the path, while
+# `cargo publish` strips the path and keeps the version requirement —
+# required for clean-signals-leptos to be publishable.
+clean-signals = { path = "crates/clean-signals", version = "0.1.0" }
+clean-signals-leptos = { path = "crates/clean-signals-leptos", version = "0.1.0" }
 
 reactive_graph = "0.2"
 any_spawner = "0.3"

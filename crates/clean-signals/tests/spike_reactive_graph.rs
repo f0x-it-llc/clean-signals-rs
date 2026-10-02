@@ -4,9 +4,9 @@
 //! `clean-signals` framework rests on. If a `reactive_graph`/`any_spawner`
 //! upgrade breaks one of these, the framework's own invariants are at risk.
 //!
-//! Each `q<n>_*` test answers exactly one question from task 01; the verdicts
-//! and downstream implications live in
-//! `workflow/plans/feature/clean-signals-rs/research/SPIKE_NOTES.md`.
+//! Each `q<n>_*` test answers exactly one question about the runtime; its
+//! verdict and what the framework relies on are stated in the test's own
+//! comments.
 //!
 //! Determinism note: async effects/spawns are driven with
 //! `Executor::tick().await` — never sleeps — so ordering is reproducible.

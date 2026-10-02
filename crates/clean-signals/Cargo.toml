@@ -4,6 +4,7 @@ version.workspace = true
 edition.workspace = true
 license.workspace = true
 repository.workspace = true
+readme.workspace = true
 description = "Clean-architecture framework for Leptos apps: use cases, controllers, retry, failures-as-events — built on reactive_graph"
 
 [features]
